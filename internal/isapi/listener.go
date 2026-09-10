@@ -27,6 +27,7 @@ type Listener struct {
 	media        *media.Service
 	notifier     *notify.TelegramService
 	baleNotifier *notify.BaleService
+	sms          *notify.SMSService
 	vision       *vision.FaceDetector
 
 	lastTrigger time.Time
@@ -40,6 +41,7 @@ func NewListener(
 	mediaSvc *media.Service,
 	notifier *notify.TelegramService,
 	baleNotifier *notify.BaleService,
+	smsSvc *notify.SMSService,
 	faceDetector *vision.FaceDetector,
 ) *Listener {
 	return &Listener{
@@ -50,6 +52,7 @@ func NewListener(
 		media:        mediaSvc,
 		notifier:     notifier,
 		baleNotifier: baleNotifier,
+		sms:          smsSvc,
 		vision:       faceDetector,
 	}
 }
@@ -159,11 +162,24 @@ func (l *Listener) Start(ctx context.Context) {
 
 					if faceFound {
 						log.Println("AI: Face detected INSTANTLY! Sending first photo...")
+
 					} else {
 						// تغییر مهم: عکس رو پاک نمی‌کنیم! چون دوربین "انسان" تشخیص داده
 						log.Println("AI: No clear face detected in first frame, but Human triggered. Sending photo anyway...")
 					}
-
+					if l.sms != nil {
+						go func() {
+							// چک می‌کنیم که آیا زمان خنک‌شدن (Cooldown) پیامک تمام شده یا نه؟
+							if l.sms.IsReady() {
+								msg := "هشدار سیستم امنیتی! یک شخص در دوربین مشاهده شد. لطفا تلگرام خود را چک کنید."
+								log.Println("SMS Cooldown passed. Triggering Call and SMS...")
+								l.sms.SendSMS(msg)
+								l.sms.MakeCall(msg)
+							} else {
+								log.Println("SMS throttled: 3-minute cooldown is active to save credit.")
+							}
+						}()
+					}
 					// ارسال فوری عکس اول (چه چهره باشه چه نباشه، چون سنسور انسان رو تایید کرده)
 					l.notifier.QueueBurstAlert(firstImages)
 					if l.baleNotifier != nil {

@@ -14,14 +14,25 @@ import (
 
 type BaleService struct {
 	bot      *tgbotapi.BotAPI
-	chatID   int64
+	chatIDs  []int64 // تغییر به لیست آیدی‌ها
 	cooldown time.Duration
 	lastSent time.Time
 	mu       sync.Mutex
 	Queue    chan []string
 }
 
-func NewBaleService(token string, chatID int64, cooldown time.Duration) (*BaleService, error) {
+// تابع کمکی برای بررسی دسترسی
+func (b *BaleService) isAuthorized(id int64) bool {
+	for _, authID := range b.chatIDs {
+		if id == authID {
+			return true
+		}
+	}
+	return false
+}
+
+// پارامتر ورودی به chatIDs تغییر کرد
+func NewBaleService(token string, chatIDs []int64, cooldown time.Duration) (*BaleService, error) {
 	client := &http.Client{}
 	baleEndpoint := "https://tapi.bale.ai/bot%s/%s"
 
@@ -34,7 +45,7 @@ func NewBaleService(token string, chatID int64, cooldown time.Duration) (*BaleSe
 
 	svc := &BaleService{
 		bot:      bot,
-		chatID:   chatID,
+		chatIDs:  chatIDs,
 		cooldown: cooldown,
 		Queue:    make(chan []string, 50),
 	}
@@ -79,47 +90,62 @@ func (b *BaleService) sendAlbum(imagePaths []string) error {
 		return nil
 	}
 
-	// حالت اول: ارسال عکس تکی در بله
-	if len(imagePaths) == 1 {
-		photo := tgbotapi.NewPhoto(b.chatID, tgbotapi.FilePath(imagePaths[0]))
-		photo.Caption = "🚨 فوری: یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
-		_, err := b.bot.Send(photo)
-		return err
-	}
+	var lastErr error
 
-	// حالت دوم: ارسال آلبوم در بله
-	var mediaGroup []interface{}
-	for i, path := range imagePaths {
-		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
-		if i == 0 {
-			photo.Caption = "📸 تصاویر تکمیلی\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+	// ارسال آلبوم برای تمام ادمین‌های بله
+	for _, chatID := range b.chatIDs {
+		// حالت اول: ارسال عکس تکی در بله
+		if len(imagePaths) == 1 {
+			photo := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(imagePaths[0]))
+			photo.Caption = "🚨 فوری: یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+			if _, err := b.bot.Send(photo); err != nil {
+				lastErr = err
+			}
+			continue
 		}
-		mediaGroup = append(mediaGroup, photo)
+
+		// حالت دوم: ارسال آلبوم در بله
+		var mediaGroup []interface{}
+		for i, path := range imagePaths {
+			photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
+			if i == 0 {
+				photo.Caption = "📸 تصاویر تکمیلی\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+			}
+			mediaGroup = append(mediaGroup, photo)
+		}
+
+		msg := tgbotapi.MediaGroupConfig{
+			ChatID: chatID,
+			Media:  mediaGroup,
+		}
+
+		if _, err := b.bot.SendMediaGroup(msg); err != nil {
+			lastErr = err
+		}
 	}
 
-	msg := tgbotapi.MediaGroupConfig{
-		ChatID: b.chatID,
-		Media:  mediaGroup,
-	}
-
-	_, err := b.bot.SendMediaGroup(msg)
-	return err
+	return lastErr
 }
 
 func (b *BaleService) SendVideo(videoPath string) {
-	video := tgbotapi.NewVideo(b.chatID, tgbotapi.FilePath(videoPath))
-	video.Caption = "🎥 SentryGo Bale Video Alert"
-	if _, err := b.bot.Send(video); err != nil {
-		log.Printf("Failed to send video to Bale: %v", err)
-	} else {
-		log.Println("Bale video sent successfully.")
+	// ارسال ویدیو برای تمام ادمین‌های بله
+	for _, chatID := range b.chatIDs {
+		video := tgbotapi.NewVideo(chatID, tgbotapi.FilePath(videoPath))
+		video.Caption = "🎥 SentryGo Bale Video Alert"
+		if _, err := b.bot.Send(video); err != nil {
+			log.Printf("Failed to send video to Bale (%d): %v", chatID, err)
+		} else {
+			log.Printf("Bale video sent successfully to %d.", chatID)
+		}
 	}
 }
 
 // تابع کمکی برای ارسال پیام متنی در بله
 func (b *BaleService) sendMessage(text string) {
-	msg := tgbotapi.NewMessage(b.chatID, text)
-	b.bot.Send(msg)
+	for _, chatID := range b.chatIDs {
+		msg := tgbotapi.NewMessage(chatID, text)
+		b.bot.Send(msg)
+	}
 }
 
 // --- بخش کنترل و تعامل دوطرفه بله ---
@@ -130,7 +156,8 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
 
 	for update := range updates {
 		if update.CallbackQuery != nil {
-			if update.CallbackQuery.Message.Chat.ID != b.chatID {
+			// چک کردن دسترسی
+			if !b.isAuthorized(update.CallbackQuery.Message.Chat.ID) {
 				continue
 			}
 
@@ -156,7 +183,8 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
 		}
 
 		if update.Message != nil {
-			if update.Message.Chat.ID != b.chatID {
+			// چک کردن دسترسی
+			if !b.isAuthorized(update.Message.Chat.ID) {
 				continue
 			}
 			text := strings.ToLower(update.Message.Text)
@@ -168,17 +196,19 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
 }
 
 func (b *BaleService) SendControlMenu() {
-	msg := tgbotapi.NewMessage(b.chatID, "🛡 **کنترل پنل SentryGo (بله)**\nوضعیت را انتخاب کنید:")
+	for _, chatID := range b.chatIDs {
+		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo (بله)**\nوضعیت را انتخاب کنید:")
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
-			tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
-		),
-	)
-	msg.ReplyMarkup = keyboard
-	b.bot.Send(msg)
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
+				tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
+			),
+		)
+		msg.ReplyMarkup = keyboard
+		b.bot.Send(msg)
+	}
 }

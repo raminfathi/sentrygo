@@ -16,15 +16,25 @@ import (
 
 type TelegramService struct {
 	bot      *tgbotapi.BotAPI
-	chatID   int64
+	chatIDs  []int64 // لیست آیدی ادمین‌ها
 	cooldown time.Duration
 	lastSent time.Time
 	mu       sync.Mutex
 	queue    chan []string // صف آفلاین برای نگهداری مسیر عکس‌ها
 }
 
+// بررسی می‌کند که آیا فرستنده پیام در لیست ادمین‌ها هست یا خیر
+func (t *TelegramService) isAuthorized(id int64) bool {
+	for _, authID := range t.chatIDs {
+		if id == authID {
+			return true
+		}
+	}
+	return false
+}
+
 // NewTelegramService initializes the Telegram bot and starts the background worker.
-func NewTelegramService(token, proxyURL string, chatID int64, cooldown time.Duration) (*TelegramService, error) {
+func NewTelegramService(token, proxyURL string, chatIDs []int64, cooldown time.Duration) (*TelegramService, error) {
 	var client *http.Client
 
 	if proxyURL != "" {
@@ -47,7 +57,7 @@ func NewTelegramService(token, proxyURL string, chatID int64, cooldown time.Dura
 
 	svc := &TelegramService{
 		bot:      bot,
-		chatID:   chatID,
+		chatIDs:  chatIDs,
 		cooldown: cooldown,
 		queue:    make(chan []string, 50), // ظرفیت صف آفلاین
 	}
@@ -87,7 +97,7 @@ func (t *TelegramService) startWorker() {
 		for {
 			err := t.sendAlbum(paths)
 			if err == nil {
-				log.Println("Telegram burst alert (album) sent successfully.")
+				log.Println("Telegram burst alert (album) sent successfully to all admins.")
 				// پاکسازی موفق عکس‌ها از روی هارد
 				for _, path := range paths {
 					os.Remove(path)
@@ -106,57 +116,74 @@ func (t *TelegramService) sendAlbum(imagePaths []string) error {
 		return nil
 	}
 
-	// حالت اول: اگر فقط یک عکس داریم (ارسال فوریِ ثانیه صفر)
-	if len(imagePaths) == 1 {
-		photo := tgbotapi.NewPhoto(t.chatID, tgbotapi.FilePath(imagePaths[0]))
-		photo.Caption = "🚨 **فوری:** یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
-		photo.ParseMode = "Markdown"
-		_, err := t.bot.Send(photo)
-		return err
-	}
+	var lastErr error
 
-	// حالت دوم: اگر چند عکس داریم (آلبوم تکمیلی)
-	var mediaGroup []interface{}
-	for i, path := range imagePaths {
-		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
-		if i == 0 {
-			photo.Caption = "📸 تصاویر تکمیلی از زوایای دیگر\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+	// ارسال آلبوم برای تک تک ادمین‌ها
+	for _, chatID := range t.chatIDs {
+		// حالت اول: اگر فقط یک عکس داریم (ارسال فوریِ ثانیه صفر)
+		if len(imagePaths) == 1 {
+			photo := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(imagePaths[0]))
+			photo.Caption = "🚨 **فوری:** یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+			photo.ParseMode = "Markdown"
+			if _, err := t.bot.Send(photo); err != nil {
+				log.Printf("Failed to send photo to %d: %v", chatID, err)
+				lastErr = err
+			}
+			continue
 		}
-		mediaGroup = append(mediaGroup, photo)
+
+		// حالت دوم: اگر چند عکس داریم (آلبوم تکمیلی)
+		var mediaGroup []interface{}
+		for i, path := range imagePaths {
+			photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
+			if i == 0 {
+				photo.Caption = "📸 تصاویر تکمیلی از زوایای دیگر\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+			}
+			mediaGroup = append(mediaGroup, photo)
+		}
+
+		msg := tgbotapi.MediaGroupConfig{
+			ChatID: chatID,
+			Media:  mediaGroup,
+		}
+
+		if _, err := t.bot.SendMediaGroup(msg); err != nil {
+			log.Printf("Failed to send album to %d: %v", chatID, err)
+			lastErr = err
+		}
 	}
 
-	msg := tgbotapi.MediaGroupConfig{
-		ChatID: t.chatID,
-		Media:  mediaGroup,
-	}
-
-	_, err := t.bot.SendMediaGroup(msg)
-	return err
+	return lastErr
 }
 
-// SendVideoAlert sends a recorded video clip to Telegram.
+// SendVideoAlert sends a recorded video clip to all Telegram admins.
 func (t *TelegramService) SendVideoAlert(videoPath string) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	video := tgbotapi.NewVideo(t.chatID, tgbotapi.FilePath(videoPath))
-	video.Caption = fmt.Sprintf("🎥 VIDEO ALERT: Intrusion & Face Detected!\n🕒 Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+	var lastErr error
+	for _, chatID := range t.chatIDs {
+		video := tgbotapi.NewVideo(chatID, tgbotapi.FilePath(videoPath))
+		video.Caption = fmt.Sprintf("🎥 VIDEO ALERT: Intrusion Detected!\n🕒 Time: %s", time.Now().Format("2006-01-02 15:04:05"))
 
-	if _, err := t.bot.Send(video); err != nil {
-		return fmt.Errorf("failed to send video: %w", err)
+		if _, err := t.bot.Send(video); err != nil {
+			log.Printf("Failed to send video to %d: %v", chatID, err)
+			lastErr = err
+		} else {
+			log.Printf("Telegram video alert sent successfully to %d.", chatID)
+		}
 	}
 
-	log.Println("Telegram video alert sent successfully.")
-
-	// os.Remove(videoPath)
-	return nil
+	return lastErr
 }
 
-// تابع کمکی برای ارسال پیام‌های متنی ساده در تلگرام
+// تابع کمکی برای ارسال پیام‌های متنی ساده به تمامی ادمین‌ها در تلگرام
 func (t *TelegramService) sendMarkdownMessage(text string) {
-	msg := tgbotapi.NewMessage(t.chatID, text)
-	msg.ParseMode = "Markdown"
-	t.bot.Send(msg)
+	for _, chatID := range t.chatIDs {
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ParseMode = "Markdown"
+		t.bot.Send(msg)
+	}
 }
 
 // --- بخش کنترل و تعامل دوطرفه ---
@@ -167,7 +194,8 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 
 	for update := range updates {
 		if update.CallbackQuery != nil {
-			if update.CallbackQuery.Message.Chat.ID != t.chatID {
+			// چک کردن اینکه آیا فرد کلیک‌کننده، ادمین است یا خیر
+			if !t.isAuthorized(update.CallbackQuery.Message.Chat.ID) {
 				continue
 			}
 
@@ -193,7 +221,8 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 		}
 
 		if update.Message != nil {
-			if update.Message.Chat.ID != t.chatID {
+			// چک کردن دسترسی برای پیام‌های متنی
+			if !t.isAuthorized(update.Message.Chat.ID) {
 				continue
 			}
 			text := strings.ToLower(update.Message.Text)
@@ -204,21 +233,22 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 	}
 }
 
-// SendControlMenu دکمه جدید را به منو اضافه می‌کند
+// SendControlMenu دکمه‌ها را برای تمامی ادمین‌ها می‌فرستد
 func (t *TelegramService) SendControlMenu() {
-	msg := tgbotapi.NewMessage(t.chatID, "🛡 **کنترل پنل SentryGo**\nوضعیت سیستم را انتخاب کنید:")
-	msg.ParseMode = "Markdown"
+	for _, chatID := range t.chatIDs {
+		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo**\nوضعیت سیستم را انتخاب کنید:")
+		msg.ParseMode = "Markdown"
 
-	keyboard := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
-			tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
-		),
-		// اضافه شدن دکمه دریافت وضعیت در یک ردیف جداگانه زیر دکمه‌های قبلی
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
-		),
-	)
-	msg.ReplyMarkup = keyboard
-	t.bot.Send(msg)
+		keyboard := tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
+				tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
+			),
+		)
+		msg.ReplyMarkup = keyboard
+		t.bot.Send(msg)
+	}
 }

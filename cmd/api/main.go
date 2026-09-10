@@ -37,22 +37,29 @@ func main() {
 	}
 
 	// Initialize Telegram Service with Proxy
-	telegramService, err := notify.NewTelegramService(cfg.TelegramBotToken, cfg.TelegramProxy, cfg.TelegramChatID, 60*time.Second)
+	telegramService, err := notify.NewTelegramService(cfg.TelegramBotToken, cfg.TelegramProxy, cfg.TelegramChatIDs, 60*time.Second)
 	if err != nil {
 		log.Fatalf("Failed to initialize Telegram service: %v", err)
 	}
 
 	// Initialize Bale Service (Optional / Direct connection)
 	var baleService *notify.BaleService
+
 	if cfg.BaleBotToken != "" {
-		baleService, err = notify.NewBaleService(cfg.BaleBotToken, cfg.BaleChatID, 60*time.Second)
+		baleService, err = notify.NewBaleService(cfg.BaleBotToken, cfg.BaleChatIDs, 60*time.Second)
 		if err != nil {
 			log.Printf("Warning: Failed to initialize Bale service: %v", err)
 		}
 	} else {
 		log.Println("Bale bot token not provided, running with Telegram only.")
 	}
-
+	// Initialize SMS & Call Service
+	var smsService *notify.SMSService
+	if len(cfg.SMSAccounts) > 0 {
+		smsService = notify.NewSMSService(cfg.SMSAccounts)
+	} else {
+		log.Println("SMS config missing. Running without SMS/Call support.")
+	}
 	// Initialize Media Service (Hikvision Snapshot)
 	mediaService := media.NewService(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass)
 
@@ -65,6 +72,7 @@ func main() {
 		mediaService,
 		telegramService,
 		baleService,
+		smsService,
 		faceDetector,
 	)
 

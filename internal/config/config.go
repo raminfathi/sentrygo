@@ -4,43 +4,80 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 
 	"github.com/joho/godotenv"
 )
 
+type SMSAccount struct {
+	APIKey      string
+	TargetPhone string
+	Sender      string
+}
+
 type Config struct {
 	TelegramBotToken string
-	TelegramChatID   int64
+	TelegramChatIDs  []int64 // تغییر به لیست
 	TelegramProxy    string
 	CameraIP         string
 	CameraUser       string
 	CameraPass       string
 	BaleBotToken     string
-	BaleChatID       int64
+	BaleChatIDs      []int64 // تغییر به لیست
+
+	SMSAccounts []SMSAccount // تغییر به لیست اکانت‌ها
 }
 
 func Load() *Config {
-	// Load .env file from the project root directory
 	if err := godotenv.Load(); err != nil {
-		log.Println("Warning: .env file not found, reading from environment variables.")
+		log.Println("Warning: No .env file found. Using environment variables.")
 	}
 
 	return &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
-		TelegramChatID:   parseInt64(os.Getenv("TELEGRAM_CHAT_ID")),
+		TelegramChatIDs:  parseChatIDs(os.Getenv("TELEGRAM_CHAT_ID")),
 		TelegramProxy:    os.Getenv("TELEGRAM_PROXY"),
 		CameraIP:         os.Getenv("CAMERA_IP"),
 		CameraUser:       os.Getenv("CAMERA_USER"),
 		CameraPass:       os.Getenv("CAMERA_PASS"),
 		BaleBotToken:     os.Getenv("BALE_BOT_TOKEN"),
-		BaleChatID:       parseInt64(os.Getenv("BALE_CHAT_ID")),
+		BaleChatIDs:      parseChatIDs(os.Getenv("BALE_CHAT_ID")),
+		SMSAccounts:      parseSMS(os.Getenv("SMS_ACCOUNTS")),
 	}
 }
 
-func parseInt64(s string) int64 {
-	val, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0
+// تابع کمکی برای خواندن چند آیدی که با کاما جدا شده‌اند
+func parseChatIDs(val string) []int64 {
+	var ids []int64
+	for _, p := range strings.Split(val, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if id, err := strconv.ParseInt(p, 10, 64); err == nil {
+			ids = append(ids, id)
+		}
 	}
-	return val
+	return ids
+}
+
+// تابع کمکی برای خواندن تنظیمات چندگانه پیامک
+func parseSMS(val string) []SMSAccount {
+	var accounts []SMSAccount
+	for _, p := range strings.Split(val, ",") {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		// فرمت: token:phone:sender
+		parts := strings.Split(p, ":")
+		if len(parts) == 3 {
+			accounts = append(accounts, SMSAccount{
+				APIKey:      strings.TrimSpace(parts[0]),
+				TargetPhone: strings.TrimSpace(parts[1]),
+				Sender:      strings.TrimSpace(parts[2]),
+			})
+		}
+	}
+	return accounts
 }
