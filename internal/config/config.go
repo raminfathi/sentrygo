@@ -4,47 +4,43 @@ import (
 	"log"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/joho/godotenv"
 )
 
-// Config holds all the environment variables for the application.
 type Config struct {
-	CameraIP             string
-	CameraUser           string
-	CameraPass           string
-	TelegramBotToken     string
-	TelegramChatID       int64
-	AlertCooldownSeconds time.Duration
-	ProxyURL             string
+	TelegramBotToken string
+	TelegramChatID   int64
+	TelegramProxy    string
+	CameraIP         string
+	CameraUser       string
+	CameraPass       string
+	BaleBotToken     string
+	BaleChatID       int64
 }
 
-// Load reads the .env file and populates the Config struct.
 func Load() *Config {
+	// Load .env file from the project root directory
 	if err := godotenv.Load(); err != nil {
-		log.Println("WARNING: No .env file found, relying on system environment variables.")
+		log.Println("Warning: .env file not found, reading from environment variables.")
 	}
-
-	chatID, _ := strconv.ParseInt(getEnv("TELEGRAM_CHAT_ID", "0"), 10, 64)
-	cooldown, _ := strconv.Atoi(getEnv("ALERT_COOLDOWN_SECONDS", "60"))
 
 	return &Config{
-		CameraIP:             getEnv("CAMERA_IP", "192.168.1.64"),
-		CameraUser:           getEnv("CAMERA_USER", "admin"),
-		CameraPass:           getEnv("CAMERA_PASS", ""),
-		TelegramBotToken:     getEnv("TELEGRAM_BOT_TOKEN", ""),
-		TelegramChatID:       chatID,
-		AlertCooldownSeconds: time.Duration(cooldown) * time.Second,
-		ProxyURL:             getEnv("PROXY_URL", ""),
+		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
+		TelegramChatID:   parseInt64(os.Getenv("TELEGRAM_CHAT_ID")),
+		TelegramProxy:    os.Getenv("TELEGRAM_PROXY"),
+		CameraIP:         os.Getenv("CAMERA_IP"),
+		CameraUser:       os.Getenv("CAMERA_USER"),
+		CameraPass:       os.Getenv("CAMERA_PASS"),
+		BaleBotToken:     os.Getenv("BALE_BOT_TOKEN"),
+		BaleChatID:       parseInt64(os.Getenv("BALE_CHAT_ID")),
 	}
 }
 
-// getEnv retrieves the value of the environment variable named by the key.
-// It returns the fallback value if the variable is not present.
-func getEnv(key, fallback string) string {
-	if value, exists := os.LookupEnv(key); exists {
-		return value
+func parseInt64(s string) int64 {
+	val, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0
 	}
-	return fallback
+	return val
 }

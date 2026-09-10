@@ -1,40 +1,37 @@
 package core
 
-import (
-	"log"
-	"sync"
-)
+import "sync"
 
-// SystemState manages the global Armed/Disarmed mode concurrently.
+// SystemState وضعیت کلی سیستم امنیتی را مدیریت می‌کند
 type SystemState struct {
-	isArmed bool
-	mu      sync.RWMutex
+	mu    sync.RWMutex
+	armed bool
 }
 
-// NewSystemState creates a new instance, defaulting to disarmed (false).
+// NewSystemState سازنده اولیه برای وضعیت سیستم
 func NewSystemState() *SystemState {
 	return &SystemState{
-		isArmed: false,
+		armed: false, // حالت پیش‌فرض
 	}
 }
 
-// SetArmed changes the monitoring status of the system.
-func (s *SystemState) SetArmed(status bool) {
+// Arm سیستم را مسلح (آماده ارسال هشدار) می‌کند
+func (s *SystemState) Arm() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	s.isArmed = status
-
-	if status {
-		log.Println("System State: ARMED - Intrusion notifications are ENABLED.")
-	} else {
-		log.Println("System State: DISARMED - Intrusion notifications are DISABLED.")
-	}
+	s.armed = true
 }
 
-// IsArmed securely checks the current status before triggering alerts.
+// Disarm سیستم را غیرمسلح (توقف موقت هشدارها) می‌کند
+func (s *SystemState) Disarm() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.armed = false
+}
+
+// IsArmed وضعیت فعلی سیستم را برمی‌گرداند
 func (s *SystemState) IsArmed() bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.isArmed
+	return s.armed
 }

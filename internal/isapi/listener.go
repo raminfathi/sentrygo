@@ -20,25 +20,34 @@ import (
 )
 
 type Listener struct {
-	ip       string
-	username string
-	password string
-	state    *core.SystemState
-	media    *media.Service          // فیلد جدید اضافه شد
-	notifier *notify.TelegramService // Add the notifier field
-	vision   *vision.FaceDetector    // Add the vision module
+	ip           string
+	username     string
+	password     string
+	state        *core.SystemState
+	media        *media.Service          // فیلد جدید اضافه شد
+	notifier     *notify.TelegramService // Add the notifier field
+	baleNotifier *notify.BaleService
+	vision       *vision.FaceDetector // Add the vision module
 }
 
 // NewListener initializes a new ISAPI stream listener.
-func NewListener(ip, username, password string, state *core.SystemState, mediaSvc *media.Service, notifier *notify.TelegramService, faceDetector *vision.FaceDetector) *Listener {
+func NewListener(
+	ip, username, password string,
+	state *core.SystemState,
+	mediaSvc *media.Service,
+	notifier *notify.TelegramService,
+	baleNotifier *notify.BaleService,
+	faceDetector *vision.FaceDetector,
+) *Listener {
 	return &Listener{
-		ip:       ip,
-		username: username,
-		password: password,
-		state:    state,
-		media:    mediaSvc,
-		notifier: notifier,
-		vision:   faceDetector, // <--- دلیل کرش خالی بودن این فیلد بود!
+		ip:           ip,
+		username:     username,
+		password:     password,
+		state:        state,
+		media:        mediaSvc,
+		notifier:     notifier,
+		baleNotifier: baleNotifier,
+		vision:       faceDetector,
 	}
 }
 
@@ -111,14 +120,21 @@ func (l *Listener) Start(ctx context.Context) {
 				if faceFound {
 					log.Println("AI Confirmation: Face detected! Queuing for Telegram...")
 					l.notifier.QueueBurstAlert(imagePaths)
+					l.baleNotifier.QueueAlert(imagePaths)
+					// ضبط و ارسال ویدیو (۵ ثانیه) همزمان برای تلگرام و بله
 					go func() {
 						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 5)
 						if err != nil {
 							log.Printf("Failed to record video: %v", err)
 							return
 						}
+
 						if err := l.notifier.SendVideoAlert(videoPath); err != nil {
-							log.Printf("Failed to send video alert: %v", err)
+							log.Printf("Failed to send video alert to Telegram: %v", err)
+						}
+
+						if l.baleNotifier != nil {
+							l.baleNotifier.SendVideo(videoPath)
 						}
 					}()
 

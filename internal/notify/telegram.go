@@ -133,7 +133,6 @@ func (t *TelegramService) SendVideoAlert(videoPath string) error {
 
 	log.Println("Telegram video alert sent successfully.")
 
-	// پاکسازی ویدیو پس از ارسال موفق
-	os.Remove(videoPath)
+	// os.Remove(videoPath)
 	return nil
 }
