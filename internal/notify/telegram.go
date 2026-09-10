@@ -118,3 +118,22 @@ func (t *TelegramService) sendAlbum(imagePaths []string) error {
 	_, err := t.bot.SendMediaGroup(msg)
 	return err
 }
+
+// SendVideoAlert sends a recorded video clip to Telegram.
+func (t *TelegramService) SendVideoAlert(videoPath string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	video := tgbotapi.NewVideo(t.chatID, tgbotapi.FilePath(videoPath))
+	video.Caption = fmt.Sprintf("🎥 VIDEO ALERT: Intrusion & Face Detected!\n🕒 Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+
+	if _, err := t.bot.Send(video); err != nil {
+		return fmt.Errorf("failed to send video: %w", err)
+	}
+
+	log.Println("Telegram video alert sent successfully.")
+
+	// پاکسازی ویدیو پس از ارسال موفق
+	os.Remove(videoPath)
+	return nil
+}

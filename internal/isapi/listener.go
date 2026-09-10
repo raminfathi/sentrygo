@@ -111,6 +111,17 @@ func (l *Listener) Start(ctx context.Context) {
 				if faceFound {
 					log.Println("AI Confirmation: Face detected! Queuing for Telegram...")
 					l.notifier.QueueBurstAlert(imagePaths)
+					go func() {
+						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 5)
+						if err != nil {
+							log.Printf("Failed to record video: %v", err)
+							return
+						}
+						if err := l.notifier.SendVideoAlert(videoPath); err != nil {
+							log.Printf("Failed to send video alert: %v", err)
+						}
+					}()
+
 				} else {
 					log.Println("AI Confirmation: No face detected. Dropping alert and cleaning up.")
 					for _, path := range imagePaths {
