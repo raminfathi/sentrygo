@@ -56,7 +56,6 @@ func main() {
 	// Initialize Media Service (Hikvision Snapshot)
 	mediaService := media.NewService(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass)
 
-	// Initialize ISAPI Listener (Passing both notification services and AI)
 	// Initialize ISAPI Listener
 	listener := isapi.NewListener(
 		cfg.CameraIP,
@@ -68,9 +67,51 @@ func main() {
 		baleService,
 		faceDetector,
 	)
+
 	// Context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// تعریف منطقِ دکمه دریافت وضعیت (گرفتن همزمان عکس و فیلم)
+	onDemandAction := func() {
+		log.Println("On-Demand action triggered via bot...")
+		// بخش اول: گرفتن یک عکس فوری و ارسال
+		images, err := mediaService.CaptureBurst(context.Background(), 1, 0)
+		if err == nil && len(images) > 0 {
+			telegramService.QueueBurstAlert(images)
+			if baleService != nil {
+				baleService.QueueAlert(images)
+			}
+		} else {
+			log.Printf("On-Demand Photo Error: %v", err)
+		}
+
+		// بخش دوم: گرفتن ۵ ثانیه فیلم و ارسال
+		go func() {
+			videoPath, err := media.RecordVideo(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass, 5)
+			if err != nil {
+				log.Printf("On-Demand Video Error: %v", err)
+				return
+			}
+			defer os.Remove(videoPath) // پاک کردن فیلم از هارد بعد از ارسال
+
+			if err := telegramService.SendVideoAlert(videoPath); err != nil {
+				log.Printf("Telegram video error: %v", err)
+			}
+			if baleService != nil {
+				baleService.SendVideo(videoPath)
+			}
+		}()
+	}
+
+	// استارت زدن گوش‌دهنده‌های تلگرام و بله و پاس دادنِ تابع
+	go telegramService.StartListening(systemState, onDemandAction)
+	telegramService.SendControlMenu()
+
+	if baleService != nil {
+		go baleService.StartListening(systemState, onDemandAction)
+		baleService.SendControlMenu()
+	}
 
 	// Start listening to Hikvision camera events
 	go listener.Start(ctx)

@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"sentrygo/internal/core"
+	"strings"
 	"sync"
 	"time"
 
@@ -99,13 +101,26 @@ func (t *TelegramService) startWorker() {
 	}
 }
 
-// sendAlbum contains the actual Telegram API logic.
 func (t *TelegramService) sendAlbum(imagePaths []string) error {
+	if len(imagePaths) == 0 {
+		return nil
+	}
+
+	// حالت اول: اگر فقط یک عکس داریم (ارسال فوریِ ثانیه صفر)
+	if len(imagePaths) == 1 {
+		photo := tgbotapi.NewPhoto(t.chatID, tgbotapi.FilePath(imagePaths[0]))
+		photo.Caption = "🚨 **فوری:** یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+		photo.ParseMode = "Markdown"
+		_, err := t.bot.Send(photo)
+		return err
+	}
+
+	// حالت دوم: اگر چند عکس داریم (آلبوم تکمیلی)
 	var mediaGroup []interface{}
 	for i, path := range imagePaths {
 		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
 		if i == 0 {
-			photo.Caption = fmt.Sprintf("🚨 ALERT: Intrusion Detected!\n🕒 Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+			photo.Caption = "📸 تصاویر تکمیلی از زوایای دیگر\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
 		}
 		mediaGroup = append(mediaGroup, photo)
 	}
@@ -135,4 +150,75 @@ func (t *TelegramService) SendVideoAlert(videoPath string) error {
 
 	// os.Remove(videoPath)
 	return nil
+}
+
+// تابع کمکی برای ارسال پیام‌های متنی ساده در تلگرام
+func (t *TelegramService) sendMarkdownMessage(text string) {
+	msg := tgbotapi.NewMessage(t.chatID, text)
+	msg.ParseMode = "Markdown"
+	t.bot.Send(msg)
+}
+
+// --- بخش کنترل و تعامل دوطرفه ---
+func (t *TelegramService) StartListening(state *core.SystemState, onDemand func()) {
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	updates := t.bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if update.CallbackQuery != nil {
+			if update.CallbackQuery.Message.Chat.ID != t.chatID {
+				continue
+			}
+
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+
+			switch update.CallbackQuery.Data {
+			case "arm":
+				state.Arm()
+				callback.Text = "سیستم مسلح شد! 🔴"
+				t.sendMarkdownMessage("🔴 سیستم امنیتی **فعال** شد. (هشدارها روشن)")
+			case "disarm":
+				state.Disarm()
+				callback.Text = "سیستم غیرفعال شد! 🟢"
+				t.sendMarkdownMessage("🟢 سیستم امنیتی **غیرفعال** شد. (هشدارها خاموش)")
+			case "status":
+				callback.Text = "در حال دریافت عکس و فیلم..."
+				t.sendMarkdownMessage("⏳ در حال ارتباط با دوربین برای دریافت عکس و فیلم فعلی...")
+				go onDemand() // اجرای تابع گرفتن عکس و فیلم
+			}
+
+			t.bot.Request(callback)
+			continue
+		}
+
+		if update.Message != nil {
+			if update.Message.Chat.ID != t.chatID {
+				continue
+			}
+			text := strings.ToLower(update.Message.Text)
+			if update.Message.Command() == "start" || update.Message.Command() == "menu" || text == "منو" || text == "menu" {
+				t.SendControlMenu()
+			}
+		}
+	}
+}
+
+// SendControlMenu دکمه جدید را به منو اضافه می‌کند
+func (t *TelegramService) SendControlMenu() {
+	msg := tgbotapi.NewMessage(t.chatID, "🛡 **کنترل پنل SentryGo**\nوضعیت سیستم را انتخاب کنید:")
+	msg.ParseMode = "Markdown"
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
+			tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+		),
+		// اضافه شدن دکمه دریافت وضعیت در یک ردیف جداگانه زیر دکمه‌های قبلی
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
+		),
+	)
+	msg.ReplyMarkup = keyboard
+	t.bot.Send(msg)
 }

@@ -101,6 +101,13 @@ func (l *Listener) Start(ctx context.Context) {
 		if strings.Contains(line, "<targetType>human</targetType>") {
 
 			// جلوگیری از ارسال رگباری هشدار (حداقل ۱۵ ثانیه فاصله بین هر تشخیص)
+			if !l.state.IsArmed() {
+				// (اختیاری: برای اینکه ترمینال پر از لاگ نشه، این لاگ رو کامنت کن یا بذار بمونه)
+				// log.Println("INFO: System is DISARMED. Ignored.")
+				continue
+			}
+
+			// ۲. حالا اگر سیستم روشن بود، تایمر ۱۵ ثانیه‌ای را اعمال کن
 			l.mu.Lock()
 			if time.Since(l.lastTrigger) < 15*time.Second {
 				l.mu.Unlock()
@@ -139,7 +146,6 @@ func (l *Listener) Start(ctx context.Context) {
 					}
 				}()
 
-				// --- شاخه دوم: گرفتن اولین عکس برای پردازش فوری هوش مصنوعی ---
 				go func() {
 					// فقط ۱ عکس می‌گیریم (با تاخیر 0)
 					firstImages, err := l.media.CaptureBurst(ctx, 1, 0)
@@ -148,33 +154,33 @@ func (l *Listener) Start(ctx context.Context) {
 						return
 					}
 
-					// بررسی فوری چهره با متد ContainsFace خودت
+					// بررسی فوری چهره با متد ContainsFace
 					faceFound := l.vision.ContainsFace(firstImages[0])
 
 					if faceFound {
-						log.Println("AI Confirmation: Face detected INSTANTLY! Queuing first photo...")
-
-						// ارسال فوری عکس اول
-						l.notifier.QueueBurstAlert(firstImages)
-						if l.baleNotifier != nil {
-							l.baleNotifier.QueueAlert(firstImages)
-						}
-
-						// --- شاخه سوم: گرفتن ۳ عکس تکمیلی برای آلبوم ---
-						go func() {
-							log.Println("Capturing additional burst photos...")
-							moreImages, _ := l.media.CaptureBurst(ctx, 3, 800*time.Millisecond)
-							if len(moreImages) > 0 {
-								l.notifier.QueueBurstAlert(moreImages)
-								if l.baleNotifier != nil {
-									l.baleNotifier.QueueAlert(moreImages)
-								}
-							}
-						}()
+						log.Println("AI: Face detected INSTANTLY! Sending first photo...")
 					} else {
-						log.Println("AI Confirmation: No face detected in first frame. Dropping alert.")
-						os.Remove(firstImages[0]) // پاک کردن عکس به درد نخور
+						// تغییر مهم: عکس رو پاک نمی‌کنیم! چون دوربین "انسان" تشخیص داده
+						log.Println("AI: No clear face detected in first frame, but Human triggered. Sending photo anyway...")
 					}
+
+					// ارسال فوری عکس اول (چه چهره باشه چه نباشه، چون سنسور انسان رو تایید کرده)
+					l.notifier.QueueBurstAlert(firstImages)
+					if l.baleNotifier != nil {
+						l.baleNotifier.QueueAlert(firstImages)
+					}
+
+					// --- شاخه سوم: گرفتن ۳ عکس تکمیلی برای آلبوم ---
+					go func() {
+						log.Println("Capturing additional burst photos...")
+						moreImages, _ := l.media.CaptureBurst(ctx, 3, 800*time.Millisecond)
+						if len(moreImages) > 0 {
+							l.notifier.QueueBurstAlert(moreImages)
+							if l.baleNotifier != nil {
+								l.baleNotifier.QueueAlert(moreImages)
+							}
+						}
+					}()
 				}()
 
 			} else {

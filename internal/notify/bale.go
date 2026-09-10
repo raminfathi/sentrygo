@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sentrygo/internal/core"
+	"strings"
 	"sync"
 	"time"
 
@@ -73,11 +75,24 @@ func (b *BaleService) startWorker() {
 }
 
 func (b *BaleService) sendAlbum(imagePaths []string) error {
+	if len(imagePaths) == 0 {
+		return nil
+	}
+
+	// حالت اول: ارسال عکس تکی در بله
+	if len(imagePaths) == 1 {
+		photo := tgbotapi.NewPhoto(b.chatID, tgbotapi.FilePath(imagePaths[0]))
+		photo.Caption = "🚨 فوری: یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+		_, err := b.bot.Send(photo)
+		return err
+	}
+
+	// حالت دوم: ارسال آلبوم در بله
 	var mediaGroup []interface{}
 	for i, path := range imagePaths {
 		photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
 		if i == 0 {
-			photo.Caption = fmt.Sprintf("🚨 SentryGo Bale Alert\n🕒 Time: %s", time.Now().Format("2006-01-02 15:04:05"))
+			photo.Caption = "📸 تصاویر تکمیلی\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
 		}
 		mediaGroup = append(mediaGroup, photo)
 	}
@@ -99,4 +114,71 @@ func (b *BaleService) SendVideo(videoPath string) {
 	} else {
 		log.Println("Bale video sent successfully.")
 	}
+}
+
+// تابع کمکی برای ارسال پیام متنی در بله
+func (b *BaleService) sendMessage(text string) {
+	msg := tgbotapi.NewMessage(b.chatID, text)
+	b.bot.Send(msg)
+}
+
+// --- بخش کنترل و تعامل دوطرفه بله ---
+func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+	updates := b.bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		if update.CallbackQuery != nil {
+			if update.CallbackQuery.Message.Chat.ID != b.chatID {
+				continue
+			}
+
+			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+
+			switch update.CallbackQuery.Data {
+			case "arm":
+				state.Arm()
+				callback.Text = "سیستم مسلح شد! 🔴"
+				b.sendMessage("🔴 سیستم امنیتی **فعال** شد.")
+			case "disarm":
+				state.Disarm()
+				callback.Text = "سیستم غیرفعال شد! 🟢"
+				b.sendMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
+			case "status":
+				callback.Text = "در حال دریافت تصویر..."
+				b.sendMessage("⏳ در حال دریافت عکس و فیلم فعلی...")
+				go onDemand() // اجرای دستور
+			}
+
+			b.bot.Request(callback)
+			continue
+		}
+
+		if update.Message != nil {
+			if update.Message.Chat.ID != b.chatID {
+				continue
+			}
+			text := strings.ToLower(update.Message.Text)
+			if update.Message.Command() == "start" || update.Message.Command() == "menu" || text == "منو" || text == "menu" {
+				b.SendControlMenu()
+			}
+		}
+	}
+}
+
+func (b *BaleService) SendControlMenu() {
+	msg := tgbotapi.NewMessage(b.chatID, "🛡 **کنترل پنل SentryGo (بله)**\nوضعیت را انتخاب کنید:")
+
+	keyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
+			tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
+		),
+	)
+	msg.ReplyMarkup = keyboard
+	b.bot.Send(msg)
 }
