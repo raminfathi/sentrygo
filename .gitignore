@@ -1,0 +1,14 @@
+# Security
+.env
+
+# Media temporary files
+/snapshots/
+*.mp4
+*.jpg
+
+# AI Models
+/cascade/facefinder
+
+# Build outputs
+*.exe
+/bin/
