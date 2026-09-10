@@ -8,13 +8,13 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"sentrygo/internal/core"
-	"sentrygo/internal/media" // پکیج جدید ایمپورت شد
+	"sentrygo/internal/media"
+	"sentrygo/internal/notify"
 	"sentrygo/internal/vision"
-
-	"sentrygo/internal/notify" // Import the new notify package
 
 	"github.com/icholy/digest"
 )
@@ -24,10 +24,13 @@ type Listener struct {
 	username     string
 	password     string
 	state        *core.SystemState
-	media        *media.Service          // فیلد جدید اضافه شد
-	notifier     *notify.TelegramService // Add the notifier field
+	media        *media.Service
+	notifier     *notify.TelegramService
 	baleNotifier *notify.BaleService
-	vision       *vision.FaceDetector // Add the vision module
+	vision       *vision.FaceDetector
+
+	lastTrigger time.Time
+	mu          sync.Mutex
 }
 
 // NewListener initializes a new ISAPI stream listener.
@@ -93,57 +96,87 @@ func (l *Listener) Start(ctx context.Context) {
 		}
 
 		line := scanner.Text()
-		// if strings.Contains(line, "<eventType>") {
-		// 	log.Printf("🔍 RAW EVENT FROM CAMERA: %s", strings.TrimSpace(line))
-		// }
+
+		// بررسی رویداد تشخیص انسان
 		if strings.Contains(line, "<targetType>human</targetType>") {
+
+			// جلوگیری از ارسال رگباری هشدار (حداقل ۱۵ ثانیه فاصله بین هر تشخیص)
+			l.mu.Lock()
+			if time.Since(l.lastTrigger) < 15*time.Second {
+				l.mu.Unlock()
+				continue
+			}
+			l.lastTrigger = time.Now()
+			l.mu.Unlock()
+
 			log.Println("Event Triggered: Human detected by the camera.")
 
 			if l.state.IsArmed() {
-				log.Println("ALERT: System is ARMED. Capturing burst snapshots...")
+				log.Println("ALERT: System is ARMED. Executing real-time parallel response...")
 
-				// Take 5 photos with 800ms delay between them
-				imagePaths, err := l.media.CaptureBurst(ctx, 5, 800*time.Millisecond)
-				if err != nil {
-					log.Printf("Failed to capture burst snapshots: %v", err)
-					continue
-				}
-				// AI Check: Scan all captured frames for a face
-				faceFound := false
-				for _, path := range imagePaths {
-					if l.vision.ContainsFace(path) {
-						faceFound = true
-						break
-					}
-				}
-
-				if faceFound {
-					log.Println("AI Confirmation: Face detected! Queuing for Telegram...")
-					l.notifier.QueueBurstAlert(imagePaths)
-					l.baleNotifier.QueueAlert(imagePaths)
-					// ضبط و ارسال ویدیو (۵ ثانیه) همزمان برای تلگرام و بله
-					go func() {
+				// --- شاخه اول: شروع فوری ضبط ویدیو به صورت موازی ---
+				go func() {
+					// گرفتن دو ویدیوی ۵ ثانیه‌ای پشت سر هم
+					for i := 1; i <= 2; i++ {
 						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 5)
 						if err != nil {
-							log.Printf("Failed to record video: %v", err)
-							return
+							log.Printf("Failed to record video chunk %d: %v", i, err)
+							continue
 						}
 
-						if err := l.notifier.SendVideoAlert(videoPath); err != nil {
-							log.Printf("Failed to send video alert to Telegram: %v", err)
-						}
+						// ارسال ویدیو در یک Goroutine مستقل برای جلوگیری از توقف ضبط بعدی
+						go func(vp string) {
+							defer os.Remove(vp) // حذف فایل به صورت امن بعد از ارسال
 
-						if l.baleNotifier != nil {
-							l.baleNotifier.SendVideo(videoPath)
-						}
-					}()
+							if err := l.notifier.SendVideoAlert(vp); err != nil {
+								log.Printf("Failed to send video alert to Telegram: %v", err)
+							}
 
-				} else {
-					log.Println("AI Confirmation: No face detected. Dropping alert and cleaning up.")
-					for _, path := range imagePaths {
-						os.Remove(path)
+							if l.baleNotifier != nil {
+								l.baleNotifier.SendVideo(vp)
+							}
+						}(videoPath)
 					}
-				}
+				}()
+
+				// --- شاخه دوم: گرفتن اولین عکس برای پردازش فوری هوش مصنوعی ---
+				go func() {
+					// فقط ۱ عکس می‌گیریم (با تاخیر 0)
+					firstImages, err := l.media.CaptureBurst(ctx, 1, 0)
+					if err != nil || len(firstImages) == 0 {
+						log.Printf("Failed to capture initial snapshot: %v", err)
+						return
+					}
+
+					// بررسی فوری چهره با متد ContainsFace خودت
+					faceFound := l.vision.ContainsFace(firstImages[0])
+
+					if faceFound {
+						log.Println("AI Confirmation: Face detected INSTANTLY! Queuing first photo...")
+
+						// ارسال فوری عکس اول
+						l.notifier.QueueBurstAlert(firstImages)
+						if l.baleNotifier != nil {
+							l.baleNotifier.QueueAlert(firstImages)
+						}
+
+						// --- شاخه سوم: گرفتن ۳ عکس تکمیلی برای آلبوم ---
+						go func() {
+							log.Println("Capturing additional burst photos...")
+							moreImages, _ := l.media.CaptureBurst(ctx, 3, 800*time.Millisecond)
+							if len(moreImages) > 0 {
+								l.notifier.QueueBurstAlert(moreImages)
+								if l.baleNotifier != nil {
+									l.baleNotifier.QueueAlert(moreImages)
+								}
+							}
+						}()
+					} else {
+						log.Println("AI Confirmation: No face detected in first frame. Dropping alert.")
+						os.Remove(firstImages[0]) // پاک کردن عکس به درد نخور
+					}
+				}()
+
 			} else {
 				log.Println("INFO: System is DISARMED. Logging event only, no alerts sent.")
 			}
