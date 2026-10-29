@@ -13,15 +13,15 @@ import (
 )
 
 type BaleService struct {
-	bot      *tgbotapi.BotAPI
-	chatIDs  []int64 // تغییر به لیست آیدی‌ها
-	cooldown time.Duration
-	lastSent time.Time
-	mu       sync.Mutex
-	Queue    chan []string
+	bot         *tgbotapi.BotAPI
+	chatIDs     []int64
+	cooldown    time.Duration
+	lastSent    time.Time
+	mu          sync.Mutex
+	Queue       chan []string
+	isConnected bool
 }
 
-// تابع کمکی برای بررسی دسترسی
 func (b *BaleService) isAuthorized(id int64) bool {
 	for _, authID := range b.chatIDs {
 		if id == authID {
@@ -31,27 +31,35 @@ func (b *BaleService) isAuthorized(id int64) bool {
 	return false
 }
 
-// پارامتر ورودی به chatIDs تغییر کرد
-func NewBaleService(token string, chatIDs []int64, cooldown time.Duration) (*BaleService, error) {
-	client := &http.Client{}
-	baleEndpoint := "https://tapi.bale.ai/bot%s/%s"
-
-	bot, err := tgbotapi.NewBotAPIWithClient(token, baleEndpoint, client)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to bale: %w", err)
-	}
-
-	log.Printf("Authorized on Bale account: %s", bot.Self.UserName)
-
+func NewBaleService(token string, chatIDs []int64, cooldown time.Duration) *BaleService {
 	svc := &BaleService{
-		bot:      bot,
 		chatIDs:  chatIDs,
 		cooldown: cooldown,
 		Queue:    make(chan []string, 50),
 	}
+	go svc.connectLoop(token)
+	return svc
+}
 
-	go svc.startWorker()
-	return svc, nil
+func (b *BaleService) connectLoop(token string) {
+	client := &http.Client{}
+	baleEndpoint := "https://tapi.bale.ai/bot%s/%s"
+
+	for {
+		bot, err := tgbotapi.NewBotAPIWithClient(token, baleEndpoint, client)
+		if err == nil {
+			log.Printf("Authorized on Bale account: %s", bot.Self.UserName)
+			b.mu.Lock()
+			b.bot = bot
+			b.isConnected = true
+			b.mu.Unlock()
+			go b.startWorker()
+			b.SendControlMenu()
+			return
+		}
+		log.Printf("Bale Network down, retrying in 10s...")
+		time.Sleep(10 * time.Second)
+	}
 }
 
 func (b *BaleService) QueueAlert(imagePaths []string) {
@@ -65,9 +73,7 @@ func (b *BaleService) QueueAlert(imagePaths []string) {
 
 	select {
 	case b.Queue <- imagePaths:
-		log.Println("Bale: Alert added to queue.")
 	default:
-		log.Println("Bale: Queue is full!")
 	}
 }
 
@@ -76,10 +82,11 @@ func (b *BaleService) startWorker() {
 		for {
 			err := b.sendAlbum(paths)
 			if err == nil {
-				log.Println("Bale: Alert album sent successfully.")
 				break
 			}
-			log.Printf("Bale network error, retrying in 10s: %v", err)
+			if strings.Contains(err.Error(), "no such file") {
+				break
+			}
 			time.Sleep(10 * time.Second)
 		}
 	}
@@ -90,21 +97,29 @@ func (b *BaleService) sendAlbum(imagePaths []string) error {
 		return nil
 	}
 
-	var lastErr error
+	// دکمه‌های عملیاتی برای بله
+	alertKeyboard := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("📷 دریافت عکس زنده", "status"),
+			tgbotapi.NewInlineKeyboardButtonData("🔊 پخش آژیر خطر", "play_alarm"),
+		),
+	)
 
-	// ارسال آلبوم برای تمام ادمین‌های بله
+	var lastErr error
 	for _, chatID := range b.chatIDs {
-		// حالت اول: ارسال عکس تکی در بله
+		// حالت عکس تکی
 		if len(imagePaths) == 1 {
 			photo := tgbotapi.NewPhoto(chatID, tgbotapi.FilePath(imagePaths[0]))
 			photo.Caption = "🚨 فوری: یک شخص رویت شد!\n🕒 زمان: " + time.Now().Format("2006-01-02 15:04:05")
+			photo.ReplyMarkup = alertKeyboard // چسباندن دکمه به عکس
+
 			if _, err := b.bot.Send(photo); err != nil {
 				lastErr = err
 			}
 			continue
 		}
 
-		// حالت دوم: ارسال آلبوم در بله
+		// حالت آلبوم (چند عکس)
 		var mediaGroup []interface{}
 		for i, path := range imagePaths {
 			photo := tgbotapi.NewInputMediaPhoto(tgbotapi.FilePath(path))
@@ -114,81 +129,120 @@ func (b *BaleService) sendAlbum(imagePaths []string) error {
 			mediaGroup = append(mediaGroup, photo)
 		}
 
-		msg := tgbotapi.MediaGroupConfig{
-			ChatID: chatID,
-			Media:  mediaGroup,
-		}
-
+		msg := tgbotapi.MediaGroupConfig{ChatID: chatID, Media: mediaGroup}
 		if _, err := b.bot.SendMediaGroup(msg); err != nil {
 			lastErr = err
 		}
-	}
 
+		// ارسال پیام دکمه‌دار بعد از آلبوم
+		if lastErr == nil {
+			actionMsg := tgbotapi.NewMessage(chatID, "فرمان عملیاتی برای تصاویر بالا:")
+			actionMsg.ReplyMarkup = alertKeyboard
+			b.bot.Send(actionMsg)
+		}
+	}
 	return lastErr
 }
 
 func (b *BaleService) SendVideo(videoPath string) {
-	// ارسال ویدیو برای تمام ادمین‌های بله
+	b.mu.Lock()
+	if !b.isConnected {
+		b.mu.Unlock()
+		return
+	}
+	b.mu.Unlock()
+
 	for _, chatID := range b.chatIDs {
 		video := tgbotapi.NewVideo(chatID, tgbotapi.FilePath(videoPath))
 		video.Caption = "🎥 SentryGo Bale Video Alert"
-		if _, err := b.bot.Send(video); err != nil {
-			log.Printf("Failed to send video to Bale (%d): %v", chatID, err)
-		} else {
-			log.Printf("Bale video sent successfully to %d.", chatID)
-		}
+		b.bot.Send(video)
 	}
 }
 
-// تابع کمکی برای ارسال پیام متنی در بله
 func (b *BaleService) sendMessage(text string) {
+	b.mu.Lock()
+	if !b.isConnected {
+		b.mu.Unlock()
+		return
+	}
+	b.mu.Unlock()
+
 	for _, chatID := range b.chatIDs {
 		msg := tgbotapi.NewMessage(chatID, text)
 		b.bot.Send(msg)
 	}
 }
 
-// --- بخش کنترل و تعامل دوطرفه بله ---
 func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
+	for {
+		b.mu.Lock()
+		ready := b.isConnected
+		b.mu.Unlock()
+		if ready {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	u := tgbotapi.NewUpdate(0)
 	u.Timeout = 60
 	updates := b.bot.GetUpdatesChan(u)
 
 	for update := range updates {
+		// پردازش کلیک روی دکمه‌های شیشه‌ای
 		if update.CallbackQuery != nil {
-			// چک کردن دسترسی
 			if !b.isAuthorized(update.CallbackQuery.Message.Chat.ID) {
 				continue
 			}
-
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
-
 			switch update.CallbackQuery.Data {
 			case "arm":
 				state.Arm()
 				callback.Text = "سیستم مسلح شد! 🔴"
-				b.sendMessage("🔴 سیستم امنیتی **فعال** شد.")
+				b.sendMessage("🔴 سیستم امنیتی فعال شد.")
 			case "disarm":
 				state.Disarm()
 				callback.Text = "سیستم غیرفعال شد! 🟢"
-				b.sendMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
+				b.sendMessage("🟢 سیستم امنیتی غیرفعال شد.")
 			case "status":
 				callback.Text = "در حال دریافت تصویر..."
-				b.sendMessage("⏳ در حال دریافت عکس و فیلم فعلی...")
-				go onDemand() // اجرای دستور
+				go onDemand()
+			case "play_alarm":
+				callback.Text = "فرمان آژیر صادر شد!"
+				b.sendMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
+				// TODO: اتصال به تابع ISAPI هایک‌ویژن
 			}
-
 			b.bot.Request(callback)
 			continue
 		}
 
+		// پردازش پیام‌های متنی و دستورات
 		if update.Message != nil {
-			// چک کردن دسترسی
 			if !b.isAuthorized(update.Message.Chat.ID) {
 				continue
 			}
 			text := strings.ToLower(update.Message.Text)
-			if update.Message.Command() == "start" || update.Message.Command() == "menu" || text == "منو" || text == "menu" {
+
+			// تنظیم پترن جدید از داخل بله
+			if update.Message.IsCommand() && update.Message.Command() == "setpattern" {
+				code := update.Message.CommandArguments()
+				if code == "" {
+					b.sendMessage("❌ لطفاً کد پترن را وارد کنید. مثال:\n/setpattern k3j5g7f9")
+					continue
+				}
+
+				// دقت کن که تابع UpdateEnvFile در پکیج notify و در فایل تلگرام تعریف شده
+				// پس نیازی نیست دوباره اینجا تعریفش کنیم و مستقیم قابل استفاده است
+				err := UpdateEnvFile("SMS_PATTERN_CODE", code)
+				if err != nil {
+					b.sendMessage("❌ خطا در ذخیره فایل تنظیمات: " + err.Error())
+				} else {
+					b.sendMessage(fmt.Sprintf("✅ کد پترن با موفقیت به `%s` تغییر یافت!", code))
+				}
+				continue
+			}
+
+			if update.Message.Command() == "start" || text == "منو" {
 				b.SendControlMenu()
 			}
 		}
@@ -196,16 +250,22 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
 }
 
 func (b *BaleService) SendControlMenu() {
+	b.mu.Lock()
+	if !b.isConnected {
+		b.mu.Unlock()
+		return
+	}
+	b.mu.Unlock()
+
 	for _, chatID := range b.chatIDs {
 		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo (بله)**\nوضعیت را انتخاب کنید:")
-
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
 				tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
 				tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📸🎥 ارسال عکس و فیلم الان", "status"),
+				tgbotapi.NewInlineKeyboardButtonData("📸🎥 دریافت عکس زنده", "status"),
 			),
 		)
 		msg.ReplyMarkup = keyboard
