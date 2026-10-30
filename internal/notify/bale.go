@@ -173,7 +173,7 @@ func (b *BaleService) sendMessage(text string) {
 	}
 }
 
-func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
+func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chatID int64)) {
 	for {
 		b.mu.Lock()
 		ready := b.isConnected
@@ -205,8 +205,8 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func()) {
 				callback.Text = "سیستم غیرفعال شد! 🟢"
 				b.sendMessage("🟢 سیستم امنیتی غیرفعال شد.")
 			case "status":
-				callback.Text = "در حال دریافت تصویر..."
-				go onDemand()
+				callback.Text = "در حال دریافت فیلم..."
+				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			case "play_alarm":
 				callback.Text = "فرمان آژیر صادر شد!"
 				b.sendMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
@@ -271,4 +271,24 @@ func (b *BaleService) SendControlMenu() {
 		msg.ReplyMarkup = keyboard
 		b.bot.Send(msg)
 	}
+}
+
+// ارسال ویدیو به یک شخص خاص (کسی که دکمه را زده)
+func (b *BaleService) SendVideoToUser(chatID int64, videoPath string, isManual bool) error {
+	b.mu.Lock()
+	if !b.isConnected {
+		b.mu.Unlock()
+		return fmt.Errorf("telegram not connected")
+	}
+	b.mu.Unlock()
+
+	video := tgbotapi.NewVideo(chatID, tgbotapi.FilePath(videoPath))
+	if isManual {
+		video.Caption = "🎥 ویدیوی درخواستی لحظه‌ای دوربین"
+	} else {
+		video.Caption = "🚨 فوری: شخص رویت شد!\n🕒 زمان: " + time.Now().Format("15:04:05")
+	}
+
+	_, err := b.bot.Send(video)
+	return err
 }

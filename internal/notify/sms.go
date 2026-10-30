@@ -54,38 +54,6 @@ func (s *SMSService) SendSMS(message string) {
 	}
 }
 
-// ارسال پیامک با استفاده از پترن (الگو)
-func (s *SMSService) trySendPattern(account config.SMSAccount, patternCode string, message string) bool {
-	apiURL := "https://api.iranpayamak.com/ws/v1/sms/pattern"
-
-	payload := map[string]interface{}{
-		"code":          patternCode,
-		"recipient":     account.TargetPhone,
-		"line_number":   account.Sender,
-		"number_format": "english",
-		// فقط متغیر time را می‌فرستیم (دقیقاً مطابق پترن جدید ثبت شده در سایت)
-		"attributes": map[string]string{
-			"time": time.Now().Format("15:04:05"),
-		},
-	}
-
-	jsonData, _ := json.Marshal(payload)
-	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
-	req.Header.Set("Api-Key", account.APIKey)
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return false
-	}
-
-	bodyBytes, _ := io.ReadAll(resp.Body)
-	log.Printf("SMS (PATTERN) sent successfully to %s! Response: %s", account.TargetPhone, string(bodyBytes))
-	return true
-}
-
 // ارسال پیامک عادی (در صورت شکست پترن) منطبق با مستندات ارسال چندگانه
 func (s *SMSService) trySendStandard(account config.SMSAccount, message string) {
 	// تغییر آدرس به آدرس صحیح ارسال پیامک ساده
@@ -131,4 +99,39 @@ func (s *SMSService) MakeCall(message string) {}
 func (s *SMSService) SendStartupMessage() {
 	log.Println("Sending startup test SMS...")
 	s.SendSMS("تست سیستم")
+}
+func (s *SMSService) trySendPattern(account config.SMSAccount, defaultPattern string, message string) bool {
+	apiURL := "https://api.iranpayamak.com/ws/v1/sms/pattern"
+
+	// انتخاب خودکار پترن بر اساس نوع پیام
+	patternCode := defaultPattern
+	if message == "تست سیستم" {
+		patternCode = "zDfnN2hDZz" // پترن اختصاصی راه‌اندازی
+	}
+
+	payload := map[string]interface{}{
+		"code":          patternCode,
+		"recipient":     account.TargetPhone,
+		"line_number":   account.Sender,
+		"number_format": "english",
+		"attributes": map[string]string{
+			"time": time.Now().Format("15:04:05"),
+		},
+	}
+
+	jsonData, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", apiURL, bytes.NewBuffer(jsonData))
+	req.Header.Set("Api-Key", account.APIKey)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode != http.StatusOK {
+		return false
+	}
+
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	log.Printf("SMS (PATTERN) sent successfully to %s! Response: %s", account.TargetPhone, string(bodyBytes))
+	return true
 }

@@ -197,7 +197,7 @@ func (t *TelegramService) sendMarkdownMessage(text string) {
 	}
 }
 
-func (t *TelegramService) StartListening(state *core.SystemState, onDemand func()) {
+func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(chatID int64)) {
 	for {
 		t.mu.Lock()
 		ready := t.isConnected
@@ -230,8 +230,8 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 				callback.Text = "سیستم غیرفعال شد! 🟢"
 				t.sendMarkdownMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
 			case "status":
-				callback.Text = "در حال دریافت تصویر..."
-				go onDemand() // گرفتن عکس زنده
+				callback.Text = "در حال دریافت فیلم..."
+				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			case "play_alarm":
 				callback.Text = "فرمان آژیر صادر شد!"
 				t.sendMarkdownMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
@@ -322,4 +322,24 @@ func UpdateEnvFile(key, newValue string) error {
 
 	output := strings.Join(lines, "\n")
 	return os.WriteFile(filePath, []byte(output), 0644)
+}
+
+// ارسال ویدیو به یک شخص خاص (کسی که دکمه را زده)
+func (t *TelegramService) SendVideoToUser(chatID int64, videoPath string, isManual bool) error {
+	t.mu.Lock()
+	if !t.isConnected {
+		t.mu.Unlock()
+		return fmt.Errorf("telegram not connected")
+	}
+	t.mu.Unlock()
+
+	video := tgbotapi.NewVideo(chatID, tgbotapi.FilePath(videoPath))
+	if isManual {
+		video.Caption = "🎥 ویدیوی درخواستی لحظه‌ای دوربین"
+	} else {
+		video.Caption = "🚨 فوری: شخص رویت شد!\n🕒 زمان: " + time.Now().Format("15:04:05")
+	}
+
+	_, err := t.bot.Send(video)
+	return err
 }

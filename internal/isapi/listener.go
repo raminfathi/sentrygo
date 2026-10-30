@@ -126,9 +126,9 @@ func (l *Listener) Start(ctx context.Context) {
 
 				// --- شاخه اول: شروع فوری ضبط ویدیو به صورت موازی ---
 				go func() {
-					// گرفتن دو ویدیوی ۵ ثانیه‌ای پشت سر هم
+					// گرفتن دو ویدیوی ۱۵ ثانیه‌ای پشت سر هم
 					for i := 1; i <= 2; i++ {
-						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 5)
+						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 15)
 						if err != nil {
 							log.Printf("Failed to record video chunk %d: %v", i, err)
 							continue
