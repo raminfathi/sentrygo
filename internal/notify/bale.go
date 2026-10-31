@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"sentrygo/internal/core"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/raminfathi/sentrygo/internal/core"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -159,7 +160,7 @@ func (b *BaleService) SendVideo(videoPath string) {
 	}
 }
 
-func (b *BaleService) sendMessage(text string) {
+func (b *BaleService) SendMessage(text string) {
 	b.mu.Lock()
 	if !b.isConnected {
 		b.mu.Unlock()
@@ -199,17 +200,17 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chat
 			case "arm":
 				state.Arm()
 				callback.Text = "سیستم مسلح شد! 🔴"
-				b.sendMessage("🔴 سیستم امنیتی فعال شد.")
+				b.SendMessage("🔴 سیستم امنیتی فعال شد.")
 			case "disarm":
 				state.Disarm()
 				callback.Text = "سیستم غیرفعال شد! 🟢"
-				b.sendMessage("🟢 سیستم امنیتی غیرفعال شد.")
+				b.SendMessage("🟢 سیستم امنیتی غیرفعال شد.")
 			case "status":
 				callback.Text = "در حال دریافت فیلم..."
 				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			case "play_alarm":
 				callback.Text = "فرمان آژیر صادر شد!"
-				b.sendMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
+				b.SendMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
 				// TODO: اتصال به تابع ISAPI هایک‌ویژن
 			}
 			b.bot.Request(callback)
@@ -227,7 +228,7 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chat
 			if update.Message.IsCommand() && update.Message.Command() == "setpattern" {
 				code := update.Message.CommandArguments()
 				if code == "" {
-					b.sendMessage("❌ لطفاً کد پترن را وارد کنید. مثال:\n/setpattern k3j5g7f9")
+					b.SendMessage("❌ لطفاً کد پترن را وارد کنید. مثال:\n/setpattern k3j5g7f9")
 					continue
 				}
 
@@ -235,9 +236,9 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chat
 				// پس نیازی نیست دوباره اینجا تعریفش کنیم و مستقیم قابل استفاده است
 				err := UpdateEnvFile("SMS_PATTERN_CODE", code)
 				if err != nil {
-					b.sendMessage("❌ خطا در ذخیره فایل تنظیمات: " + err.Error())
+					b.SendMessage("❌ خطا در ذخیره فایل تنظیمات: " + err.Error())
 				} else {
-					b.sendMessage(fmt.Sprintf("✅ کد پترن با موفقیت به `%s` تغییر یافت!", code))
+					b.SendMessage(fmt.Sprintf("✅ کد پترن با موفقیت به `%s` تغییر یافت!", code))
 				}
 				continue
 			}

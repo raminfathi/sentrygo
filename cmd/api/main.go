@@ -8,13 +8,13 @@ import (
 	"syscall"
 	"time"
 
-	"sentrygo/internal/config"
-	"sentrygo/internal/core"
-	"sentrygo/internal/isapi"
-	"sentrygo/internal/media"
-	"sentrygo/internal/notify"
-	"sentrygo/internal/vision"
-	"sentrygo/internal/web"
+	"github.com/raminfathi/sentrygo/internal/config"
+	"github.com/raminfathi/sentrygo/internal/core"
+	"github.com/raminfathi/sentrygo/internal/isapi"
+	"github.com/raminfathi/sentrygo/internal/media"
+	"github.com/raminfathi/sentrygo/internal/notify"
+	"github.com/raminfathi/sentrygo/internal/vision"
+	"github.com/raminfathi/sentrygo/internal/web"
 )
 
 func main() {
@@ -44,7 +44,7 @@ func main() {
 	var smsService *notify.SMSService
 	if len(cfg.SMSAccounts) > 0 {
 		smsService = notify.NewSMSService(cfg.SMSAccounts)
-		// smsService.SendStartupMessage()
+		smsService.SendStartupMessage()
 	} else {
 		log.Println("SMS config missing. Running without SMS/Call support.")
 	}
@@ -129,8 +129,21 @@ func main() {
 		// ۲. تغییر منطق دکمه برای سوئیچ کردن وضعیت
 		func() bool {
 			currentState := systemState.IsArmed()
-			systemState.SetArmed(!currentState) // معکوس کردن وضعیت فعلی
-			return systemState.IsArmed()
+			newState := !currentState
+			systemState.SetArmed(newState)
+
+			// ایجاد متن پیام
+			msg := "🟢 سیستم دزدگیر غیرفعال شد (Disarmed)"
+			if newState {
+				msg = "🔴 سیستم دزدگیر فعال شد (Armed)"
+			}
+
+			// ارسال پیام به ربات‌ها (نام متغیرهای ربات خود را اینجا قرار دهید)
+			telegramService.SendMarkdownMessage(msg)
+			baleService.SendMessage(msg)
+
+			return newState
+
 		},
 	)
 	go webServer.Start()

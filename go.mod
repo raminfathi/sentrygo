@@ -1,4 +1,4 @@
-module sentrygo
+module github.com/raminfathi/sentrygo
 
 go 1.24.3
 

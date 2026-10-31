@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"sentrygo/internal/core"
-	"sentrygo/internal/media"
-	"sentrygo/internal/notify"
-	"sentrygo/internal/vision"
+	"github.com/raminfathi/sentrygo/internal/core"
+	"github.com/raminfathi/sentrygo/internal/media"
+	"github.com/raminfathi/sentrygo/internal/notify"
+	"github.com/raminfathi/sentrygo/internal/vision"
 
 	"github.com/icholy/digest"
 )

@@ -7,9 +7,10 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sentrygo/internal/config"
 	"sync"
 	"time"
+
+	"github.com/raminfathi/sentrygo/internal/config"
 )
 
 type SMSService struct {

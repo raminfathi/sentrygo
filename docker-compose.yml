@@ -1,0 +1,13 @@
+version: '3.8'
+services:
+  sentrygo:
+    build: .
+    container_name: sentrygo_app
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./.env:/app/.env
+      - ./archive:/app/archive
+    environment:
+      - TZ=Asia/Tehran

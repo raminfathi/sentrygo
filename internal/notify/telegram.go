@@ -6,10 +6,11 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"sentrygo/internal/core"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/raminfathi/sentrygo/internal/core"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -182,7 +183,7 @@ func (t *TelegramService) SendVideoAlert(videoPath string) error {
 	return lastErr
 }
 
-func (t *TelegramService) sendMarkdownMessage(text string) {
+func (t *TelegramService) SendMarkdownMessage(text string) {
 	t.mu.Lock()
 	if !t.isConnected {
 		t.mu.Unlock()
@@ -224,17 +225,17 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 			case "arm":
 				state.Arm()
 				callback.Text = "سیستم مسلح شد! 🔴"
-				t.sendMarkdownMessage("🔴 سیستم امنیتی **فعال** شد.")
+				t.SendMarkdownMessage("🔴 سیستم امنیتی **فعال** شد.")
 			case "disarm":
 				state.Disarm()
 				callback.Text = "سیستم غیرفعال شد! 🟢"
-				t.sendMarkdownMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
+				t.SendMarkdownMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
 			case "status":
 				callback.Text = "در حال دریافت فیلم..."
 				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			case "play_alarm":
 				callback.Text = "فرمان آژیر صادر شد!"
-				t.sendMarkdownMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
+				t.SendMarkdownMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
 				// TODO: اینجا باید تابع ISAPI دوربین را صدا بزنیم تا آژیر پخش شود
 			}
 			t.bot.Request(callback)
@@ -253,15 +254,15 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 			if update.Message.IsCommand() && update.Message.Command() == "setpattern" {
 				code := update.Message.CommandArguments()
 				if code == "" {
-					t.sendMarkdownMessage("❌ لطفاً کد پترن را وارد کنید. مثال:\n`/setpattern k3j5g7f9`")
+					t.SendMarkdownMessage("❌ لطفاً کد پترن را وارد کنید. مثال:\n`/setpattern k3j5g7f9`")
 					continue
 				}
 
 				err := UpdateEnvFile("SMS_PATTERN_CODE", code)
 				if err != nil {
-					t.sendMarkdownMessage("❌ خطا در ذخیره فایل تنظیمات: " + err.Error())
+					t.SendMarkdownMessage("❌ خطا در ذخیره فایل تنظیمات: " + err.Error())
 				} else {
-					t.sendMarkdownMessage(fmt.Sprintf("✅ کد پترن با موفقیت به `%s` تغییر یافت و سیستم پیامک روی حالت ارسال سریع تنظیم شد!", code))
+					t.SendMarkdownMessage(fmt.Sprintf("✅ کد پترن با موفقیت به `%s` تغییر یافت و سیستم پیامک روی حالت ارسال سریع تنظیم شد!", code))
 				}
 				continue
 			}

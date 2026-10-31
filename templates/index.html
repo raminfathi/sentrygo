@@ -91,7 +91,7 @@
             
             <div class="flex items-center gap-4">
                 <div class="flex items-center gap-2">
-                    <span id="system-status-text" class="text-red-400 font-bold text-sm md:text-base animate-pulse">سیستم فعال است (Armed)</span>
+                    <span id="status_label" class="text-red-400 font-bold text-sm md:text-base animate-pulse">سیستم فعال است (Armed)</span>
                     <button id="toggle-system" onclick="toggleSystem()" class="relative inline-flex h-6 w-11 items-center rounded-full bg-red-500 transition-colors focus:outline-none">
                         <span id="toggle-knob" class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform translate-x-1"></span>
                     </button>
@@ -485,18 +485,37 @@
 
     loadArchive();
 
-    // ۶. مدیریت کلید وضعیت سیستم (دزدگیر)
+    // لود اولیه وضعیت کلید و متن
     fetch('/api/status').then(res => res.json()).then(data => {
-        let t = document.getElementById('system_toggle');
-        if(t) t.checked = data.armed;
+        updateToggleUI(data.armed);
     });
 
+    // ارسال درخواست تغییر وضعیت به سرور
     function toggleSystem() {
-        fetch('/api/status', { method: 'POST' }).then(res => res.json()).then(data => {
-            let t = document.getElementById('system_toggle');
-            if(t) t.checked = data.armed;
-            alert(data.armed ? "دزدگیر فعال شد" : "دزدگیر غیرفعال شد");
-        });
+        fetch('/api/status', { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+                updateToggleUI(data.armed);
+            })
+            .catch(err => alert("خطا در ارتباط با سرور"));
+    }
+
+    // تابع کمکی برای تغییر ظاهر دکمه و متن
+    function updateToggleUI(isArmed) {
+        let t = document.getElementById('system_toggle');
+        let label = document.getElementById('status_label');
+        
+        if(t) t.checked = isArmed;
+        
+        if(label) {
+            if(isArmed) {
+                label.innerText = "سیستم فعال است (Armed)";
+                label.className = "text-red-500 font-bold";
+            } else {
+                label.innerText = "سیستم غیرفعال است (Disarmed)";
+                label.className = "text-slate-400 font-bold";
+            }
+        }
     }
 </script>
 </body>
