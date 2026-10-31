@@ -14,6 +14,7 @@ import (
 	"sentrygo/internal/media"
 	"sentrygo/internal/notify"
 	"sentrygo/internal/vision"
+	"sentrygo/internal/web"
 )
 
 func main() {
@@ -43,7 +44,7 @@ func main() {
 	var smsService *notify.SMSService
 	if len(cfg.SMSAccounts) > 0 {
 		smsService = notify.NewSMSService(cfg.SMSAccounts)
-		smsService.SendStartupMessage()
+		// smsService.SendStartupMessage()
 	} else {
 		log.Println("SMS config missing. Running without SMS/Call support.")
 	}
@@ -112,13 +113,27 @@ func main() {
 		}()
 	}
 
-	// استارت ربات‌ها با ارسال تابع‌های اختصاصی
 	go telegramService.StartListening(systemState, onDemandTelegram)
 	if baleService != nil {
 		go baleService.StartListening(systemState, onDemandBale)
 	}
 
-	// استارت دوربین
+	webPort := os.Getenv("WEB_PORT")
+	if webPort == "" {
+		webPort = ":8080"
+	}
+	webServer := web.NewServer(webPort,
+		// ۱. اضافه شدن پرانتز برای خواندن وضعیت
+		func() bool { return systemState.IsArmed() },
+
+		// ۲. تغییر منطق دکمه برای سوئیچ کردن وضعیت
+		func() bool {
+			currentState := systemState.IsArmed()
+			systemState.SetArmed(!currentState) // معکوس کردن وضعیت فعلی
+			return systemState.IsArmed()
+		},
+	)
+	go webServer.Start()
 	go listener.Start(ctx)
 
 	sigChan := make(chan os.Signal, 1)

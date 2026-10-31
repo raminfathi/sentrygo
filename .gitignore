@@ -3,6 +3,7 @@
 
 # Media temporary files
 /snapshots/
+archive/
 *.mp4
 *.jpg
 

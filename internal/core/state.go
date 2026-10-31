@@ -35,3 +35,9 @@ func (s *SystemState) IsArmed() bool {
 	defer s.mu.RUnlock()
 	return s.armed
 }
+
+func (s *SystemState) SetArmed(status bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.armed = status
+}

@@ -106,7 +106,12 @@ func (s *SMSService) trySendPattern(account config.SMSAccount, defaultPattern st
 	// انتخاب خودکار پترن بر اساس نوع پیام
 	patternCode := defaultPattern
 	if message == "تست سیستم" {
-		patternCode = "zDfnN2hDZz" // پترن اختصاصی راه‌اندازی
+		startupPattern := os.Getenv("SMS_STARTUP_PATTERN")
+		if startupPattern != "" {
+			patternCode = startupPattern
+		} else {
+			patternCode = ""
+		}
 	}
 
 	payload := map[string]interface{}{
