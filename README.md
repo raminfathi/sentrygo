@@ -27,8 +27,6 @@ Before running this project, ensure you have the following installed on your sys
    git clone [https://github.com/raminfathi/sentrygo.git](https://github.com/raminfathi/sentrygo.git)
    cd sentrygo
 
-```
-
 2. **Install Go dependencies:**
 ```bash
 go mod tidy
