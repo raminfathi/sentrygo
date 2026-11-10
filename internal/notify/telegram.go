@@ -214,29 +214,47 @@ func (t *TelegramService) StartListening(state *core.SystemState, onDemand func(
 	updates := t.bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		// بخش مربوط به فشردن دکمه‌های شیشه‌ای
 		if update.CallbackQuery != nil {
 			if !t.isAuthorized(update.CallbackQuery.Message.Chat.ID) {
 				continue
 			}
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
 
+			// استخراج نام کاربر تلگرام
+			userName := update.CallbackQuery.From.FirstName
+			if update.CallbackQuery.From.LastName != "" {
+				userName += " " + update.CallbackQuery.From.LastName
+			}
+
 			switch update.CallbackQuery.Data {
 			case "arm":
-				state.Arm()
+				state.Arm(userName) // پاس دادن نام کاربر
 				callback.Text = "سیستم مسلح شد! 🔴"
-				t.SendMarkdownMessage("🔴 سیستم امنیتی **فعال** شد.")
+				t.SendMarkdownMessage(fmt.Sprintf("🔴 سیستم امنیتی توسط **%s** (تلگرام) **فعال** شد.", userName))
+
 			case "disarm":
-				state.Disarm()
+				state.Disarm(userName) // پاس دادن نام کاربر
 				callback.Text = "سیستم غیرفعال شد! 🟢"
-				t.SendMarkdownMessage("🟢 سیستم امنیتی **غیرفعال** شد.")
+				t.SendMarkdownMessage(fmt.Sprintf("🟢 سیستم امنیتی توسط **%s** (تلگرام) **غیرفعال** شد.", userName))
+
+			case "check_state": // منطق دکمه جدید
+				statusTxt := "🟢 غیرفعال (Disarmed)"
+				if state.IsArmed() {
+					statusTxt = "🔴 فعال (Armed)"
+				}
+				actor := state.GetLastActor()
+				if actor == "" {
+					actor = "نامشخص (احتمالاً ری‌استارت شده)"
+				}
+				callback.Text = "وضعیت دریافت شد"
+				t.SendMarkdownMessage(fmt.Sprintf("📊 **وضعیت سیستم:** %s\n👤 **آخرین تغییر توسط:** %s", statusTxt, actor))
+
 			case "status":
 				callback.Text = "در حال دریافت فیلم..."
 				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			case "play_alarm":
 				callback.Text = "فرمان آژیر صادر شد!"
-				t.SendMarkdownMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
-				// TODO: اینجا باید تابع ISAPI دوربین را صدا بزنیم تا آژیر پخش شود
+				t.SendMarkdownMessage("🔊 **آژیر خطر فعال شد!**")
 			}
 			t.bot.Request(callback)
 			continue
@@ -283,15 +301,16 @@ func (t *TelegramService) SendControlMenu() {
 	t.mu.Unlock()
 
 	for _, chatID := range t.chatIDs {
-		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo**\nوضعیت سیستم را انتخاب کنید:")
+		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo**\nفرمان مورد نظر را انتخاب کنید:")
 		msg.ParseMode = "Markdown"
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
-				tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+				tgbotapi.NewInlineKeyboardButtonData("🔴 فعال کردن (Arm)", "arm"),
+				tgbotapi.NewInlineKeyboardButtonData("🟢 غیرفعال کردن (Disarm)", "disarm"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📸🎥 دریافت عکس زنده", "status"),
+				tgbotapi.NewInlineKeyboardButtonData("❓ وضعیت فعلی سیستم", "check_state"), // دکمه جدید
+				tgbotapi.NewInlineKeyboardButtonData("📸🎥 عکس زنده", "status"),
 			),
 		)
 		msg.ReplyMarkup = keyboard

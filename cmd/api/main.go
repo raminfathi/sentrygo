@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -22,7 +23,7 @@ func main() {
 
 	cfg := config.Load()
 	systemState := core.NewSystemState()
-	systemState.Arm()
+	systemState.Arm("سیستم (راه‌اندازی اولیه)") // پاس دادن مقدار پیش‌فرض
 
 	faceDetector, err := vision.NewFaceDetector("cascade/facefinder")
 	if err != nil {
@@ -79,7 +80,7 @@ func main() {
 				}
 			}()
 
-			videoPath, err := media.RecordVideo(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass, 25)
+			videoPath, err := media.RecordVideo(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass, 10)
 			if err != nil {
 				log.Println("Error recording video:", err)
 				return
@@ -123,27 +124,30 @@ func main() {
 		webPort = ":8080"
 	}
 	webServer := web.NewServer(webPort,
-		// ۱. اضافه شدن پرانتز برای خواندن وضعیت
+		// تابع خواندن وضعیت فعلی
 		func() bool { return systemState.IsArmed() },
 
-		// ۲. تغییر منطق دکمه برای سوئیچ کردن وضعیت
+		// تابع تغییر وضعیت دزدگیر از روی وب
 		func() bool {
 			currentState := systemState.IsArmed()
 			newState := !currentState
-			systemState.SetArmed(newState)
 
-			// ایجاد متن پیام
-			msg := "🟢 سیستم دزدگیر غیرفعال شد (Disarmed)"
+			// تعیین منبع تغییر دهنده
+			source := "داشبورد وب (Admin Panel)"
+
 			if newState {
-				msg = "🔴 سیستم دزدگیر فعال شد (Armed)"
+				systemState.Arm(source) // استفاده از تابع جدید با ورودی نام
+				msg := fmt.Sprintf("🔴 سیستم امنیتی توسط **%s** **فعال** شد.", source)
+				telegramService.SendMarkdownMessage(msg)
+				// baleService.SendMessage(msg) // اگر ربات بله هم فعال است، این خط را از کامنت در بیاورید
+			} else {
+				systemState.Disarm(source) // استفاده از تابع جدید با ورودی نام
+				msg := fmt.Sprintf("🟢 سیستم امنیتی توسط **%s** **غیرفعال** شد.", source)
+				telegramService.SendMarkdownMessage(msg)
+				// baleService.SendMessage(msg) // اگر ربات بله هم فعال است، این خط را از کامنت در بیاورید
 			}
 
-			// ارسال پیام به ربات‌ها (نام متغیرهای ربات خود را اینجا قرار دهید)
-			telegramService.SendMarkdownMessage(msg)
-			baleService.SendMessage(msg)
-
 			return newState
-
 		},
 	)
 	go webServer.Start()

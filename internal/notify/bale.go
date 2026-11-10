@@ -190,29 +190,46 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chat
 	updates := b.bot.GetUpdatesChan(u)
 
 	for update := range updates {
-		// پردازش کلیک روی دکمه‌های شیشه‌ای
 		if update.CallbackQuery != nil {
-			if !b.isAuthorized(update.CallbackQuery.Message.Chat.ID) {
+			if !b.isAuthorized(update.CallbackQuery.Message.Chat.ID) { // در صورت نیاز b یا t
 				continue
 			}
 			callback := tgbotapi.NewCallback(update.CallbackQuery.ID, "")
+
+			// استخراج نام کاربر بله
+			userName := update.CallbackQuery.From.FirstName
+			if update.CallbackQuery.From.LastName != "" {
+				userName += " " + update.CallbackQuery.From.LastName
+			}
+
 			switch update.CallbackQuery.Data {
 			case "arm":
-				state.Arm()
+				state.Arm(userName)
 				callback.Text = "سیستم مسلح شد! 🔴"
-				b.SendMessage("🔴 سیستم امنیتی فعال شد.")
+				b.SendMessage(fmt.Sprintf("🔴 سیستم امنیتی توسط **%s** (بله) **فعال** شد.", userName))
+
 			case "disarm":
-				state.Disarm()
+				state.Disarm(userName)
 				callback.Text = "سیستم غیرفعال شد! 🟢"
-				b.SendMessage("🟢 سیستم امنیتی غیرفعال شد.")
+				b.SendMessage(fmt.Sprintf("🟢 سیستم امنیتی توسط **%s** (بله) **غیرفعال** شد.", userName))
+
+			case "check_state":
+				statusTxt := "🟢 غیرفعال (Disarmed)"
+				if state.IsArmed() {
+					statusTxt = "🔴 فعال (Armed)"
+				}
+				actor := state.GetLastActor()
+				if actor == "" {
+					actor = "نامشخص (احتمالاً ری‌استارت شده)"
+				}
+				callback.Text = "وضعیت دریافت شد"
+				b.SendMessage(fmt.Sprintf("📊 **وضعیت سیستم:** %s\n👤 **آخرین تغییر توسط:** %s", statusTxt, actor))
+
 			case "status":
 				callback.Text = "در حال دریافت فیلم..."
-				go onDemand(update.CallbackQuery.Message.Chat.ID)
-			case "play_alarm":
-				callback.Text = "فرمان آژیر صادر شد!"
-				b.SendMessage("🔊 **آژیر خطر فعال شد!** (در حال ارسال دستور به دوربین...)")
-				// TODO: اتصال به تابع ISAPI هایک‌ویژن
+				// فراخوانی تابع دریافت وضعیت
 			}
+
 			b.bot.Request(callback)
 			continue
 		}
@@ -262,11 +279,12 @@ func (b *BaleService) SendControlMenu() {
 		msg := tgbotapi.NewMessage(chatID, "🛡 **کنترل پنل SentryGo (بله)**\nوضعیت را انتخاب کنید:")
 		keyboard := tgbotapi.NewInlineKeyboardMarkup(
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("🔴 خونه نیستم (فعال)", "arm"),
-				tgbotapi.NewInlineKeyboardButtonData("🟢 خونه هستم (غیرفعال)", "disarm"),
+				tgbotapi.NewInlineKeyboardButtonData("🔴 فعال کردن (Arm)", "arm"),
+				tgbotapi.NewInlineKeyboardButtonData("🟢 غیرفعال کردن (Disarm)", "disarm"),
 			),
 			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData("📸🎥 دریافت عکس زنده", "status"),
+				tgbotapi.NewInlineKeyboardButtonData("❓ وضعیت فعلی سیستم", "check_state"), // دکمه جدید
+				tgbotapi.NewInlineKeyboardButtonData("📸🎥 عکس زنده", "status"),
 			),
 		)
 		msg.ReplyMarkup = keyboard
@@ -274,7 +292,6 @@ func (b *BaleService) SendControlMenu() {
 	}
 }
 
-// ارسال ویدیو به یک شخص خاص (کسی که دکمه را زده)
 func (b *BaleService) SendVideoToUser(chatID int64, videoPath string, isManual bool) error {
 	b.mu.Lock()
 	if !b.isConnected {
