@@ -17,15 +17,16 @@ type SMSAccount struct {
 
 type Config struct {
 	TelegramBotToken string
-	TelegramChatIDs  []int64 // تغییر به لیست
+	TelegramChatIDs  []int64
 	TelegramProxy    string
 	CameraIP         string
 	CameraUser       string
 	CameraPass       string
 	BaleBotToken     string
-	BaleChatIDs      []int64 // تغییر به لیست
+	BaleChatIDs      []int64
+	RecordingPath    string
 
-	SMSAccounts []SMSAccount // تغییر به لیست اکانت‌ها
+	SMSAccounts []SMSAccount
 }
 
 func Load() *Config {
@@ -43,6 +44,7 @@ func Load() *Config {
 		BaleBotToken:     os.Getenv("BALE_BOT_TOKEN"),
 		BaleChatIDs:      parseChatIDs(os.Getenv("BALE_CHAT_ID")),
 		SMSAccounts:      parseSMS(os.Getenv("SMS_ACCOUNTS")),
+		RecordingPath:    os.Getenv("RECORDING_PATH"),
 	}
 }
 

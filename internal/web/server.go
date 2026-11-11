@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/raminfathi/sentrygo/internal/core"
 )
 
 type Server struct {
@@ -246,6 +248,7 @@ func (s *Server) handleSettings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		log.Printf("📥 داده‌های دریافت شده از سایت: %v", newSettings)
 		updateEnvFile(newSettings)
 		for key, val := range newSettings {
 			os.Setenv(key, val)
@@ -262,6 +265,7 @@ func (s *Server) handleRestart(w http.ResponseWriter, r *http.Request) {
 
 		// یک ثانیه تاخیر برای رسیدن پیام به مرورگر، سپس توقف برنامه
 		go func() {
+			core.StopContinuousRecording()
 			time.Sleep(1 * time.Second)
 			os.Exit(0) // در لینوکس، سرویس systemd به صورت خودکار برنامه را دوباره روشن می‌کند
 		}()

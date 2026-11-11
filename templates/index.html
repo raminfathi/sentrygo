@@ -222,13 +222,19 @@
 
 
                 </form>
+                <div class="mb-4">
+                    <label class="block text-slate-300 text-sm font-bold mb-2">مسیر ذخیره ویدیوهای ۲۴ ساعته (Recording Path)</label>
+                    <!-- حتماً آیدی فیلد باید id="RECORDING_PATH" باشد -->
+                    <input id="RECORDING_PATH" type="text" placeholder="./archive/records یا D:/CCTV" 
+                        class="shadow appearance-none border border-slate-600 rounded w-full py-2 px-3 text-slate-300 bg-slate-700 focus:outline-none focus:border-blue-500">
+                </div>
                 <!-- Action Buttons -->
                     <div class="flex justify-end gap-3">
                         <button type="button" onclick="restartSystem()" class="bg-red-600/20 hover:bg-red-600/40 text-red-500 border border-red-900/50 py-3 px-6 rounded-xl font-bold transition flex items-center gap-2">
                             <i class="ph ph-arrows-clockwise text-xl"></i>
                             ری‌استارت سرور
                         </button>
-                        <button type="submit" class="bg-brand-600 hover:bg-brand-500 text-white py-3 px-8 rounded-xl font-bold transition shadow-lg shadow-brand-500/20 flex items-center gap-2">
+                        <button type="button" onclick="saveSettings()" class="bg-brand-600 hover:bg-brand-500 text-white py-3 px-8 rounded-xl font-bold transition shadow-lg shadow-brand-500/20 flex items-center gap-2">
                             <i class="ph ph-floppy-disk text-xl"></i>
                             ذخیره تنظیمات
                         </button>
@@ -393,7 +399,20 @@
     // ۲. ذخیره تمامی تنظیمات با یک کلیک
     function saveSettings(e) {
     if (e) e.preventDefault(); // جلوگیری از رفرش شدن فرم
-    
+    const recPathInput = document.getElementById('RECORDING_PATH');
+    const newSettings = {};
+    if (recPathInput && recPathInput.value) {
+        newSettings["RECORDING_PATH"] = recPathInput.value;
+    }
+
+
+    if (Object.keys(newSettings).length === 0) {
+            alert("لطفا حداقل یک فیلد را پر کنید.");
+            return;
+        }
+
+
+
     // بازسازی ساختار پیچیده پیامک برای ذخیره در .env
     let apiKey = document.getElementById('sms_api_key')?.value || '';
     let rawPhones = document.getElementById('sms_phones')?.value || '';
@@ -412,18 +431,30 @@
         SMS_PATTERN_CODE: document.getElementById('sms_pattern')?.value || '',
         SMS_STARTUP_PATTERN: document.getElementById('sms_startup_pattern')?.value || '',
         TELEGRAM_BOT_TOKEN: document.getElementById('telegram_bot_token')?.value || '',
-        BALE_BOT_TOKEN: document.getElementById('bale_bot_token')?.value || ''
+        BALE_BOT_TOKEN: document.getElementById('bale_bot_token')?.value || '',
+        RECORDING_PATH: document.getElementById('RECORDING_PATH').value || ''
     };
 
-        fetch('/api/settings', {
+    fetch('/api/settings', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(newSettings)
         })
-        .then(res => res.json())
-        .then(data => alert(data.message))
-        .catch(err => alert("خطا در ذخیره تنظیمات"));
-}
+        .then(async response => {
+            if (!response.ok) {
+                const err = await response.text();
+                throw new Error(err);
+            }
+            return response.json();
+        })
+        .then(data => {
+            alert("✅ تنظیمات با موفقیت ذخیره شد. لطفا سیستم را ری‌استارت کنید.");
+        })
+        .catch(error => {
+            console.error('Error saving settings:', error);
+            alert("❌ خطا در ذخیره تنظیمات. کنسول مرورگر را چک کنید.");
+        });
+    }
 
     // ۳. تابع ری‌استارت سیستم
     function restartSystem() {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,6 +23,18 @@ func main() {
 	log.Println("Starting SentryGo Security System...")
 
 	cfg := config.Load()
+	encodedPass := url.QueryEscape(cfg.CameraPass)
+	rtspURL := fmt.Sprintf("rtsp://%s:%s@%s:554/Streaming/Channels/101",
+		cfg.CameraUser,
+		encodedPass,
+		cfg.CameraIP,
+	)
+
+	recPath := cfg.RecordingPath
+	if recPath == "" {
+		recPath = "./archive/records"
+	}
+	core.StartContinuousRecording(rtspURL, recPath)
 	systemState := core.NewSystemState()
 	systemState.Arm("سیستم (راه‌اندازی اولیه)") // پاس دادن مقدار پیش‌فرض
 
