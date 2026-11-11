@@ -4,13 +4,14 @@ A lightweight, self-hosted smart security system written in Go. SentryGo connect
 
 ## ✨ Features
 
-*   **Real-Time Web Dashboard:** Watch live camera feeds directly in your browser with near-zero latency.
-*   **Multi-Channel Alerts:** Instant notifications with snapshots sent to Telegram, Bale, and via SMS.
-*   **Remote Control:** Arm or disarm the alarm system directly from the web dashboard or via bot commands.
-*   **Media Archive & Gallery:** Manually or automatically capture snapshots and 25-second video clips.
-*   **Dynamic Configuration:** Edit sensitive configurations directly from the secure web UI.
-*   **Secure Access:** The web dashboard is protected by HTTP Basic Authentication.
-
+-   **24/7 Continuous Recording:** Reliable MKV segment recording with automatic storage management (Auto-Cleanup).
+-   **Silent Detection (Burst Capture):** When disarmed, the system can silently capture high-quality burst photos in daily folders upon detecting motion, without triggering alarms.
+-   **Real-Time Web Dashboard:** Watch live camera feeds directly in your browser with near-zero latency.
+-   **Multi-Channel Alerts:** Instant notifications with snapshots and video clips sent to Telegram, Bale, and via SMS.
+-   **Remote Control:** Arm or disarm the alarm system directly from the web dashboard.
+-   **Media Archive & Gallery:** Browse daily captured events, manual snapshots, and continuous recordings.
+-   **Dynamic Configuration:** Edit sensitive configurations and recording paths directly from the secure web UI without touching code.
+-   **Secure Access:** The web dashboard is protected by HTTP Basic Authentication.
 ## 📋 Prerequisites
 
 Before running this project, ensure you have the following installed on your system:
