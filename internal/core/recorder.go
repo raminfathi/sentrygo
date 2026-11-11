@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -67,4 +68,49 @@ func StopContinuousRecording() {
 		cancelRecording()
 		time.Sleep(2 * time.Second) // ۲ ثانیه صبر برای بسته شدن کامل فایل mkv
 	}
+}
+func StartAutoCleanup(saveDir string, retentionDays int) {
+	if retentionDays <= 0 {
+		log.Println("⚠️ سیستم پاکسازی خودکار غیرفعال است (RetentionDays <= 0)")
+		return
+	}
+
+	go func() {
+		for {
+			log.Printf("🧹 شروع بررسی و پاکسازی ویدیوهای قدیمی‌تر از %d روز...", retentionDays)
+
+			// محاسبه زمانی که فایل‌ها قبل از آن باید حذف شوند
+			cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
+			deletedCount := 0
+
+			// اسکن پوشه ضبط
+			err := filepath.Walk(saveDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return nil // در صورت خطا، از این فایل بگذر
+				}
+
+				// فقط فایل‌های mkv یا mp4 را بررسی کن (نه پوشه‌ها را)
+				if !info.IsDir() && (strings.HasSuffix(info.Name(), ".mkv") || strings.HasSuffix(info.Name(), ".mp4")) {
+					// اگر تاریخ تغییر فایل قدیمی‌تر از زمان تعیین شده بود
+					if info.ModTime().Before(cutoffTime) {
+						if err := os.Remove(path); err == nil {
+							deletedCount++
+						} else {
+							log.Printf("❌ خطا در حذف فایل قدیمی: %s", path)
+						}
+					}
+				}
+				return nil
+			})
+
+			if err != nil {
+				log.Printf("❌ خطا در اسکن پوشه برای پاکسازی: %v", err)
+			} else if deletedCount > 0 {
+				log.Printf("✅ عملیات پاکسازی تمام شد. %d فایل قدیمی حذف شد.", deletedCount)
+			}
+
+			// صبر برای 1 ساعت قبل از بررسی مجدد
+			time.Sleep(1 * time.Hour)
+		}
+	}()
 }

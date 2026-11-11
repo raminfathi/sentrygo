@@ -35,6 +35,7 @@ func main() {
 		recPath = "./archive/records"
 	}
 	core.StartContinuousRecording(rtspURL, recPath)
+	core.StartAutoCleanup(recPath, cfg.RetentionDays)
 	systemState := core.NewSystemState()
 	systemState.Arm("سیستم (راه‌اندازی اولیه)") // پاس دادن مقدار پیش‌فرض
 

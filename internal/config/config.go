@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -25,6 +26,8 @@ type Config struct {
 	BaleBotToken     string
 	BaleChatIDs      []int64
 	RecordingPath    string
+	RetentionDays    int
+	SilentDetection  bool
 
 	SMSAccounts []SMSAccount
 }
@@ -33,7 +36,12 @@ func Load() *Config {
 	if err := godotenv.Load(); err != nil {
 		log.Println("Warning: No .env file found. Using environment variables.")
 	}
-
+	retentionStr := os.Getenv("RETENTION_DAYS")
+	retentionDays := 7
+	if retentionStr != "" {
+		fmt.Sscanf(retentionStr, "%d", &retentionDays)
+	}
+	silentDetection := os.Getenv("SILENT_DETECTION") == "true"
 	return &Config{
 		TelegramBotToken: os.Getenv("TELEGRAM_BOT_TOKEN"),
 		TelegramChatIDs:  parseChatIDs(os.Getenv("TELEGRAM_CHAT_ID")),
@@ -45,6 +53,8 @@ func Load() *Config {
 		BaleChatIDs:      parseChatIDs(os.Getenv("BALE_CHAT_ID")),
 		SMSAccounts:      parseSMS(os.Getenv("SMS_ACCOUNTS")),
 		RecordingPath:    os.Getenv("RECORDING_PATH"),
+		RetentionDays:    retentionDays,
+		SilentDetection:  silentDetection,
 	}
 }
 

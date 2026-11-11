@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -58,7 +59,7 @@ func NewListener(
 }
 
 func (l *Listener) Start(ctx context.Context) {
-	url := fmt.Sprintf("http://%s/ISAPI/Event/notification/alertStream", l.ip)
+	isapiURL := fmt.Sprintf("http://%s/ISAPI/Event/notification/alertStream", l.ip)
 
 	client := &http.Client{
 		Transport: &digest.Transport{
@@ -68,7 +69,7 @@ func (l *Listener) Start(ctx context.Context) {
 		Timeout: 0,
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", isapiURL, nil)
 	if err != nil {
 		log.Printf("Failed to create request: %v", err)
 		return
@@ -101,16 +102,11 @@ func (l *Listener) Start(ctx context.Context) {
 		line := scanner.Text()
 
 		// بررسی رویداد تشخیص انسان
+		// بررسی رویداد تشخیص انسان
 		if strings.Contains(line, "<targetType>human</targetType>") {
 
-			// جلوگیری از ارسال رگباری هشدار (حداقل ۱۵ ثانیه فاصله بین هر تشخیص)
-			if !l.state.IsArmed() {
-				// (اختیاری: برای اینکه ترمینال پر از لاگ نشه، این لاگ رو کامنت کن یا بذار بمونه)
-				// log.Println("INFO: System is DISARMED. Ignored.")
-				continue
-			}
-
-			// ۲. حالا اگر سیستم روشن بود، تایمر ۱۵ ثانیه‌ای را اعمال کن
+			// ۱. تایمر ۱۵ ثانیه‌ای را برای همه حالت‌ها (چه دزدگیر روشن، چه خاموش) اعمال می‌کنیم
+			// تا در ضبط بی‌صدا هم هارد پر از عکس‌های تکراری نشود
 			l.mu.Lock()
 			if time.Since(l.lastTrigger) < 15*time.Second {
 				l.mu.Unlock()
@@ -126,7 +122,6 @@ func (l *Listener) Start(ctx context.Context) {
 
 				// --- شاخه اول: شروع فوری ضبط ویدیو به صورت موازی ---
 				go func() {
-					// گرفتن دو ویدیوی ۱۵ ثانیه‌ای پشت سر هم
 					for i := 1; i <= 2; i++ {
 						videoPath, err := media.RecordVideo(l.ip, l.username, l.password, 15)
 						if err != nil {
@@ -134,14 +129,11 @@ func (l *Listener) Start(ctx context.Context) {
 							continue
 						}
 
-						// ارسال ویدیو در یک Goroutine مستقل برای جلوگیری از توقف ضبط بعدی
 						go func(vp string) {
-							defer os.Remove(vp) // حذف فایل به صورت امن بعد از ارسال
-
+							defer os.Remove(vp)
 							if err := l.notifier.SendVideoAlert(vp); err != nil {
 								log.Printf("Failed to send video alert to Telegram: %v", err)
 							}
-
 							if l.baleNotifier != nil {
 								l.baleNotifier.SendVideo(vp)
 							}
@@ -150,43 +142,38 @@ func (l *Listener) Start(ctx context.Context) {
 				}()
 
 				go func() {
-					// فقط ۱ عکس می‌گیریم (با تاخیر 0)
 					firstImages, err := l.media.CaptureBurst(ctx, 1, 0)
 					if err != nil || len(firstImages) == 0 {
 						log.Printf("Failed to capture initial snapshot: %v", err)
 						return
 					}
 
-					// بررسی فوری چهره با متد ContainsFace
 					faceFound := l.vision.ContainsFace(firstImages[0])
-
 					if faceFound {
 						log.Println("AI: Face detected INSTANTLY! Sending first photo...")
-
 					} else {
-						// تغییر مهم: عکس رو پاک نمی‌کنیم! چون دوربین "انسان" تشخیص داده
-						log.Println("AI: No clear face detected in first frame, but Human triggered. Sending photo anyway...")
+						log.Println("AI: No clear face detected, but Human triggered. Sending photo anyway...")
 					}
+
 					if l.sms != nil {
 						go func() {
-							// چک می‌کنیم که آیا زمان خنک‌شدن (Cooldown) پیامک تمام شده یا نه؟
 							if l.sms.IsReady() {
 								msg := "هشدار سیستم امنیتی! یک شخص در دوربین مشاهده شد. لطفا تلگرام خود را چک کنید."
 								log.Println("SMS Cooldown passed. Triggering Call and SMS...")
 								l.sms.SendSMS(msg)
 								l.sms.MakeCall(msg)
 							} else {
-								log.Println("SMS throttled: 3-minute cooldown is active to save credit.")
+								log.Println("SMS throttled: 3-minute cooldown is active.")
 							}
 						}()
 					}
-					// ارسال فوری عکس اول (چه چهره باشه چه نباشه، چون سنسور انسان رو تایید کرده)
+
 					l.notifier.QueueBurstAlert(firstImages)
 					if l.baleNotifier != nil {
 						l.baleNotifier.QueueAlert(firstImages)
 					}
 
-					// --- شاخه سوم: گرفتن ۳ عکس تکمیلی برای آلبوم ---
+					// گرفتن ۳ عکس تکمیلی برای آلبوم
 					go func() {
 						log.Println("Capturing additional burst photos...")
 						moreImages, _ := l.media.CaptureBurst(ctx, 3, 800*time.Millisecond)
@@ -200,7 +187,20 @@ func (l *Listener) Start(ctx context.Context) {
 				}()
 
 			} else {
-				log.Println("INFO: System is DISARMED. Logging event only, no alerts sent.")
+				// --- سیستم غیرفعال است (DISARMED) ---
+				// بررسی می‌کنیم که آیا کاربر ضبط بی‌صدا را در داشبورد/env روشن کرده است؟
+				if os.Getenv("SILENT_DETECTION") == "true" {
+					log.Println("🕵️ دزدگیر خاموش است اما Silent Detection فعال است. ثبت عکس‌های مخفیانه...")
+
+					// ساخت لینک RTSP ایمن
+					encodedPass := url.QueryEscape(l.password)
+					rtspURL := fmt.Sprintf("rtsp://%s:%s@%s:554/Streaming/Channels/101", l.username, encodedPass, l.ip)
+
+					// فراخوانی تابع ذخیره عکس رگباری در پوشه روزانه (که در مرحله قبل ساختیم)
+					core.CaptureSilentBurst(rtspURL)
+				} else {
+					log.Println("INFO: System is DISARMED and Silent Detection is OFF. Ignored.")
+				}
 			}
 		}
 	}
