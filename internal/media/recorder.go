@@ -35,7 +35,7 @@ func RecordVideo(cameraIP, username, password string, durationSeconds int) (stri
 		"-rtsp_transport", "tcp",
 		"-i", rtspURL,
 		"-t", durationArg,
-		"-c:v", "copy", // ویدیو را دست‌نخورده کپی کن (سریع)
+		"-c:v", "copy", "-an",
 		"-c:a", "aac", // صدا را به فرمت استاندارد MP4 تبدیل کن
 		absPath,
 	)

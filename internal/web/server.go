@@ -173,7 +173,7 @@ func (s *Server) handleRecord(w http.ResponseWriter, r *http.Request) {
 
 	// اجرای ضبط در پس‌زمینه تا سایت برای ۲۵ ثانیه قفل نشود
 	go func() {
-		cmd := exec.Command("ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", streamURL, "-t", "25", "-c", "copy", fileName)
+		cmd := exec.Command("ffmpeg", "-y", "-rtsp_transport", "tcp", "-i", streamURL, "-t", "10", "-c:v", "copy", "-an", fileName)
 		cmd.Run()
 	}()
 

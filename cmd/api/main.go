@@ -115,7 +115,7 @@ func main() {
 				}
 			}()
 
-			videoPath, err := media.RecordVideo(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass, 25)
+			videoPath, err := media.RecordVideo(cfg.CameraIP, cfg.CameraUser, cfg.CameraPass, 10)
 			if err != nil {
 				log.Println("Error recording video:", err)
 				return

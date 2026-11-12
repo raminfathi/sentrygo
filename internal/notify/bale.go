@@ -228,6 +228,7 @@ func (b *BaleService) StartListening(state *core.SystemState, onDemand func(chat
 			case "status":
 				callback.Text = "در حال دریافت فیلم..."
 				// فراخوانی تابع دریافت وضعیت
+				go onDemand(update.CallbackQuery.Message.Chat.ID)
 			}
 
 			b.bot.Request(callback)
